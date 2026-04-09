@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,10 +56,19 @@ from uuid import uuid4
 import tailtest.core.runner.javascript  # noqa: F401, E402
 import tailtest.core.runner.python  # noqa: F401, E402
 from tailtest.core.baseline import BaselineManager
-from tailtest.core.config import ConfigLoader
-from tailtest.core.findings.schema import FindingBatch
+from tailtest.core.config import Config, ConfigLoader, DepthMode
+from tailtest.core.findings.schema import Finding, FindingBatch
 from tailtest.core.runner import BaseRunner, RunnerNotAvailable, get_default_registry
 from tailtest.core.scan import ProjectScanner
+from tailtest.security.sast.semgrep import SemgrepRunner
+from tailtest.security.sca.manifests import (
+    PackageRef,
+    diff_manifests,
+    parse_package_json,
+    parse_pyproject_toml,
+)
+from tailtest.security.sca.osv import OSVLookup
+from tailtest.security.secrets.gitleaks import GitleaksRunner
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +95,14 @@ _MANIFEST_FILENAMES = {
     "vitest.config.js",
     "jest.config.ts",
     "jest.config.js",
+}
+
+# Manifest files that feed the OSV SCA lookup. Phase 2 ships parsers
+# for the two default modern-Python and modern-JS paths; the larger
+# _MANIFEST_FILENAMES set is used for profile-rescan purposes above.
+_SCA_MANIFEST_PARSERS = {
+    "pyproject.toml": parse_pyproject_toml,
+    "package.json": parse_package_json,
 }
 
 # Paths (relative fragments) that identify tailtest's own source. Files
@@ -138,6 +156,7 @@ async def run(
     del now_utc  # Phase 1 does not persist hook-level timestamps separately.
 
     root = (project_root or Path.cwd()).resolve()
+    hook_start_monotonic = time.monotonic()
 
     payload = _parse_stdin(stdin_text)
     if payload is None:
@@ -251,9 +270,46 @@ async def run(
     # Stamp the depth onto the batch so downstream consumers see it.
     batch = batch.model_copy(update={"depth": config.depth.value})
 
+    # Security phase (Phase 2 Task 2.5). Runs after the test phase so
+    # a failing test never gets buried under security noise: if any
+    # test failed, we skip the scanner trio entirely and surface test
+    # results first. Otherwise we call gitleaks / semgrep / OSV per
+    # the depth gating rules and merge results into the same batch
+    # BEFORE baseline filtering, so the baseline applies uniformly to
+    # test + security findings.
+    security_findings: list[Finding] = []
+    if batch.tests_failed == 0:
+        security_findings = await _run_security_phase(
+            root=root,
+            changed_files=changed_files,
+            config=config,
+            depth=config.depth,
+            run_id=run_id,
+        )
+    else:
+        logger.info(
+            "skipping security phase: %d test(s) failed",
+            batch.tests_failed,
+        )
+
+    if security_findings:
+        merged_findings = list(batch.findings) + security_findings
+        batch = batch.model_copy(update={"findings": merged_findings})
+
     # Apply baseline (drops findings whose id is in baseline).
     manager = BaselineManager(root / ".tailtest")
     batch = manager.apply_to(batch)
+
+    # Recompute the summary line so it reflects post-baseline state
+    # and carries the new-security-issue count plus the total hook
+    # duration. We do this AFTER baseline so the "new" count excludes
+    # findings the user has already acknowledged.
+    hook_duration_s = time.monotonic() - hook_start_monotonic
+    batch = batch.model_copy(
+        update={
+            "summary_line": _build_summary_line(batch, hook_duration_s),
+        }
+    )
 
     _persist_report(root, batch)
 
@@ -692,6 +748,212 @@ def _persist_report(root: Path, batch: FindingBatch) -> None:
         (reports_dir / "latest.json").write_text(batch.model_dump_json(indent=2), encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
         logger.warning("could not persist report: %s", exc)
+
+
+# --- Security phase (Phase 2 Task 2.5) ---------------------------------
+
+
+async def _run_security_phase(
+    *,
+    root: Path,
+    changed_files: list[Path],
+    config: Config,
+    depth: DepthMode,
+    run_id: str,
+) -> list[Finding]:
+    """Run the gitleaks + Semgrep + OSV scanners per the depth rules.
+
+    Returns the merged list of security findings. Logs and swallows
+    every exception so the hot loop never crashes because a scanner
+    errored; the test-phase findings always make it back to the
+    user regardless of what happened here.
+
+    Depth gating:
+    - ``off``: return empty immediately.
+    - ``quick``: gitleaks only (fast, per-file scan).
+    - ``standard`` / ``thorough`` / ``paranoid``: gitleaks + Semgrep
+      on the changed files + OSV on any changed SCA manifest.
+    """
+    if depth == DepthMode.OFF:
+        return []
+
+    findings: list[Finding] = []
+
+    # Secrets: cheap, runs at every non-off depth. Per-file scan.
+    if config.security.secrets:
+        try:
+            runner = GitleaksRunner(root)
+            if runner.is_available():
+                findings.extend(await runner.scan(changed_files, run_id=run_id))
+        except Exception as exc:  # noqa: BLE001, hot-loop-safe
+            logger.warning("gitleaks scan failed: %s", exc)
+
+    # SAST + SCA: only at standard+ depth. quick keeps the hot loop
+    # snappy by scanning secrets alone.
+    if depth == DepthMode.QUICK:
+        return findings
+
+    if config.security.sast:
+        try:
+            sast_runner = SemgrepRunner(root)
+            if sast_runner.is_available():
+                findings.extend(await sast_runner.scan(changed_files, run_id=run_id))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("semgrep scan failed: %s", exc)
+
+    if config.security.sca:
+        sca_manifests = [f for f in changed_files if f.name in _SCA_MANIFEST_PARSERS]
+        if sca_manifests:
+            try:
+                sca_findings = await _run_osv_for_manifest_edits(
+                    root=root,
+                    manifest_files=sca_manifests,
+                    run_id=run_id,
+                )
+                findings.extend(sca_findings)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("osv scan failed: %s", exc)
+
+    return findings
+
+
+async def _run_osv_for_manifest_edits(
+    *,
+    root: Path,
+    manifest_files: list[Path],
+    run_id: str,
+) -> list[Finding]:
+    """Diff each edited manifest against its snapshot and query OSV.
+
+    The first time a given manifest file is touched, its snapshot
+    does not exist yet. We treat that as "old=empty", which means
+    every dependency in the current manifest is considered "added"
+    and gets queried. Subsequent hook runs compare the current
+    manifest against the saved snapshot so only genuine additions +
+    bumps surface.
+
+    The snapshot is saved AFTER each call so the next hook run sees
+    the current state as the new baseline.
+    """
+    snapshot_dir = root / ".tailtest" / "cache" / "manifests"
+
+    all_findings: list[Finding] = []
+    for manifest in manifest_files:
+        parser = _SCA_MANIFEST_PARSERS.get(manifest.name)
+        if parser is None:
+            continue
+        try:
+            text = manifest.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.info("could not read manifest %s: %s", manifest, exc)
+            continue
+
+        new_refs = parser(text)
+        old_refs = _load_manifest_snapshot(snapshot_dir, manifest.name)
+
+        diff = diff_manifests(old_refs, new_refs)
+
+        # Save the new state regardless of whether we find vulns so
+        # the next run sees the current state as "old".
+        _save_manifest_snapshot(snapshot_dir, manifest.name, new_refs)
+
+        if not diff.changed_refs:
+            continue
+
+        lookup = OSVLookup(root)
+        all_findings.extend(await lookup.check_manifest_diff(diff, run_id=run_id))
+
+    return all_findings
+
+
+def _load_manifest_snapshot(snapshot_dir: Path, filename: str) -> list[PackageRef]:
+    """Load the saved manifest snapshot for ``filename`` or empty list.
+
+    The snapshot is a JSON array of dicts with the ``PackageRef``
+    field names. Any I/O or parse failure returns an empty list so
+    the caller falls back to the "treat everything as added" branch.
+    """
+    path = snapshot_dir / f"{filename}.snap"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    refs: list[PackageRef] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        ecosystem = item.get("ecosystem")
+        if not isinstance(name, str) or not isinstance(ecosystem, str):
+            continue
+        refs.append(
+            PackageRef(
+                name=name,
+                version=str(item.get("version", "")),
+                ecosystem=ecosystem,
+                source_spec=str(item.get("source_spec", "")),
+            )
+        )
+    return refs
+
+
+def _save_manifest_snapshot(snapshot_dir: Path, filename: str, refs: list[PackageRef]) -> None:
+    """Persist a manifest snapshot next to the OSV cache.
+
+    Best effort; I/O failures are logged and swallowed because the
+    hot loop must never break on a cache write error.
+    """
+    try:
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        path = snapshot_dir / f"{filename}.snap"
+        payload = [
+            {
+                "name": r.name,
+                "version": r.version,
+                "ecosystem": r.ecosystem,
+                "source_spec": r.source_spec,
+            }
+            for r in refs
+        ]
+        tmp = path.with_suffix(".snap.tmp")
+        tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:
+        logger.debug("manifest snapshot save failed: %s", exc)
+
+
+def _build_summary_line(batch: FindingBatch, hook_duration_s: float) -> str:
+    """Build the one-line status banner with test + security counts.
+
+    Format: ``tailtest: <P>/<T> tests passed [· N failed] [· N skipped]
+    [· N new security issue(s)] · <dur>s``.
+
+    The security count is the number of non-baseline findings whose
+    kind is SECRET, SAST, or SCA. We count after baseline application
+    so the user only sees NEW security issues, matching the
+    "test_failures that are new" semantics already in place.
+    """
+    from tailtest.core.findings.schema import FindingKind
+
+    total = batch.tests_passed + batch.tests_failed + batch.tests_skipped
+    summary = f"tailtest: {batch.tests_passed}/{total} tests passed"
+    if batch.tests_failed:
+        summary += f" · {batch.tests_failed} failed"
+    if batch.tests_skipped:
+        summary += f" · {batch.tests_skipped} skipped"
+
+    security_kinds = {FindingKind.SECRET, FindingKind.SAST, FindingKind.SCA}
+    new_security = sum(1 for f in batch.findings if f.kind in security_kinds and not f.in_baseline)
+    if new_security > 0:
+        label = "issue" if new_security == 1 else "issues"
+        summary += f" · {new_security} new security {label}"
+
+    summary += f" · {hook_duration_s:.1f}s"
+    return summary
 
 
 # --- Symbol re-exports for tests ---------------------------------------

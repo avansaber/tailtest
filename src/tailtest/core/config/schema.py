@@ -45,16 +45,22 @@ class RunnersConfig(BaseModel):
 class SecurityConfig(BaseModel):
     """Security scanning configuration.
 
-    Phase 1 ships with every security check off (security layer lands
-    in Phase 2). These fields exist so Phase 1 configs are forward-
-    compatible with Phase 2 without a migration.
+    Phase 2 Task 2.5 flipped the defaults from ``False`` to ``True``
+    for ``secrets``, ``sast``, and ``sca`` because the scanner trio
+    ships with the hot loop integration. Each scanner has a
+    graceful ``is_available()`` fallback, so if the underlying
+    binary (``gitleaks``, ``semgrep``) is not on PATH the hook
+    still runs cleanly and just logs an INFO line.
+
+    ``block_on_verified_secret`` remains off until secret
+    verification against live APIs ships in a later revision.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    secrets: bool = False
-    sast: bool = False
-    sca: bool = False
+    secrets: bool = True
+    sast: bool = True
+    sca: bool = True
     block_on_verified_secret: bool = False
 
 

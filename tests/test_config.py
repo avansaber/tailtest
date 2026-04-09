@@ -20,7 +20,14 @@ def test_config_defaults() -> None:
     assert config.schema_version == CONFIG_SCHEMA_VERSION == 1
     assert config.depth == DepthMode.STANDARD
     assert config.runners.auto_detect is True
-    assert config.security.secrets is False
+    # Phase 2 Task 2.5: security scanner trio is on by default.
+    # Each scanner gracefully falls back when its binary is
+    # missing, so defaulting to True is safe.
+    assert config.security.secrets is True
+    assert config.security.sast is True
+    assert config.security.sca is True
+    # block_on_verified_secret stays off until verification lands.
+    assert config.security.block_on_verified_secret is False
     assert config.notifications.auto_offer_generation is True
     assert config.interview_completed is False
 
@@ -126,7 +133,9 @@ def test_save_then_load_preserves_all_fields(tmp_path: Path) -> None:
         depth=DepthMode.THOROUGH,
         interview_completed=True,
     )
-    original.security.secrets = True
+    # Flip to False so the roundtrip asserts an explicit non-default
+    # (Task 2.5 changed the default to True).
+    original.security.secrets = False
     original.notifications.auto_offer_generation = False
 
     loader.save(original)
@@ -134,5 +143,5 @@ def test_save_then_load_preserves_all_fields(tmp_path: Path) -> None:
 
     assert restored.depth == DepthMode.THOROUGH
     assert restored.interview_completed is True
-    assert restored.security.secrets is True
+    assert restored.security.secrets is False
     assert restored.notifications.auto_offer_generation is False
