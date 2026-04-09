@@ -1,0 +1,132 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tailtester"
+version = "0.1.0a0"
+description = "tailtest — the test + security validator that lives inside Claude Code. Never blocks, never lies."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+authors = [
+    { name = "AvanSaber Inc", email = "support@avansaber.com" },
+]
+keywords = [
+    "testing",
+    "ai",
+    "claude-code",
+    "plugin",
+    "security",
+    "sast",
+    "test-generation",
+    "llm",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+dependencies = [
+    "click>=8.1",
+    "pydantic>=2.5",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "pyright>=1.1.350",
+    "hatchling>=1.24",
+]
+
+[project.urls]
+Homepage = "https://tailtest.com"
+Repository = "https://github.com/avansaber/tailtest"
+Documentation = "https://tailtest.com/docs"
+Changelog = "https://github.com/avansaber/tailtest/blob/main/CHANGELOG.md"
+Issues = "https://github.com/avansaber/tailtest/issues"
+
+[project.scripts]
+tailtest = "tailtest.cli.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tailtest"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/data",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = [
+    # Fixture projects are self-contained pytest rootdirs — their source
+    # uses `from fixture_name import ...` resolved via the fixture's own
+    # pyproject.toml pythonpath setting, which ruff doesn't understand
+    # from the outer project's context.
+    "tests/fixtures",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = [
+    "**/__pycache__",
+    "**/.venv",
+    # Fixture projects live in tests/fixtures/ and are meant to be
+    # imported BY pytest WHEN the tailtest runner runs pytest against
+    # them — not by pyright in the outer project's context.
+    "tests/fixtures",
+]
+typeCheckingMode = "standard"
+pythonVersion = "3.11"
+reportMissingImports = "error"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Fixture projects under tests/fixtures/ are self-contained pytest rootdirs.
+# Their tests run in subprocesses invoked by PythonRunner tests — outer
+# pytest must NOT recurse into them (tests would be run twice and the
+# intentional-failure tests would be reported as real failures).
+norecursedirs = ["tests/fixtures"]

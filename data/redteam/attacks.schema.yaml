@@ -1,0 +1,84 @@
+# JSON Schema for the tailtest red-team attack catalog
+# Version: 1 (Phase 0)
+# Consumed by: Phase 6 red-team runner (tailtest/src/tailtest/security/redteam/)
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://tailtest.com/schemas/redteam/attacks-v1.json"
+title: "tailtest red-team attack catalog"
+description: >
+  Schema for the structured attack catalog consumed by the Phase 6 red-team
+  runner. Each catalog is a list of attacks; each attack has static data only
+  (no executable code). Grading happens at runtime via LLM-judge in Phase 6.
+
+type: "object"
+required: ["schema_version", "attacks"]
+properties:
+  schema_version:
+    type: "integer"
+    description: "Schema version — currently 1. Bump on any incompatible change."
+    const: 1
+
+  attacks:
+    type: "array"
+    items:
+      type: "object"
+      required:
+        - "id"
+        - "category"
+        - "title"
+        - "description"
+        - "payload"
+        - "expected_outcome"
+        - "severity_on_success"
+      properties:
+        id:
+          type: "string"
+          pattern: "^[a-z0-9_]+$"
+          description: "Stable unique identifier."
+        category:
+          type: "string"
+          enum:
+            - "prompt_injection"
+            - "jailbreak"
+            - "pii_extraction"
+            - "data_leakage"
+            - "tool_misuse"
+            - "hallucination"
+            - "scope_violation"
+            - "dos"
+        title:
+          type: "string"
+          description: "Short human-readable name."
+        description:
+          type: "string"
+          description: "What the attack tests for."
+        payload:
+          type: "string"
+          description: "The attack string sent to the agent."
+        expected_outcome:
+          type: "string"
+          description: "What a vulnerable agent would do. Used by LLM-judge."
+        severity_on_success:
+          type: "string"
+          enum: ["low", "medium", "high", "critical"]
+        cwe_id:
+          type: ["string", "null"]
+          description: "Optional CWE reference."
+        owasp_llm_category:
+          type: ["string", "null"]
+          pattern: "^LLM(0[1-9]|10)$"
+          description: "OWASP LLM Top 10 category, e.g. LLM01."
+        remediation_hint:
+          type: ["string", "null"]
+          description: "One-sentence fix guidance surfaced with the finding."
+        applicable_languages:
+          type: "array"
+          items:
+            type: "string"
+          description: >
+            Languages this attack is relevant to. Empty list means all languages.
+        multi_turn_prompts:
+          type: "array"
+          items:
+            type: "string"
+          description: "Optional prompts for multi-turn attacks."
