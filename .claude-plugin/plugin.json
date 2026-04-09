@@ -1,7 +1,7 @@
 {
   "name": "tailtest",
   "description": "Runs tests and security checks on every Claude edit. Never blocks, never lies.",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.1",
   "author": {
     "name": "AvanSaber Inc"
   },
