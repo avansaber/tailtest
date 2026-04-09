@@ -34,10 +34,12 @@ When the user invokes this skill, run a short conversational interview to config
 - Do not generate tests as part of the interview. That is `/tailtest:gen`.
 - Do not run the full scan at deep mode. Shallow is enough for the interview.
 - Do not write any file other than `.tailtest/config.yaml`.
-- Do not offer a security scan as part of setup. The security layer ships in a later release.
+- Do not force the user to configure security scanners during setup. The Phase 2 defaults enable gitleaks + Semgrep + OSV with sensible values; the user can inspect the posture afterwards via `/tailtest:security` and adjust via the config file.
 
 ## Related skills
 
 - `/tailtest:status` to verify the config was written correctly
 - `/tailtest:depth` to change depth mode later
 - `/tailtest:scan` to re-scan the project profile
+- `/tailtest:security` to review the current security scanner posture
+- `/tailtest:debt` to review baselined findings after the first run

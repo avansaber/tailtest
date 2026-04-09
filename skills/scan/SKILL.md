@@ -47,5 +47,6 @@ scanned 80 files in 28ms, status ok
 ## Related skills
 
 - `/tailtest:status` for a compact status summary
+- `/tailtest:security` for the current scanner posture and new-vs-baselined counts
 - `/tailtest:gen` to generate tests for a source file
 - `/tailtest:setup` for the onboarding interview
