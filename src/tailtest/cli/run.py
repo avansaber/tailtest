@@ -21,7 +21,8 @@ from uuid import uuid4
 
 import click
 
-# Self-register Python runner.
+# Self-register runners (order does not matter, the registry is keyed by language).
+import tailtest.core.runner.javascript  # noqa: F401, E402
 import tailtest.core.runner.python  # noqa: F401, E402
 from tailtest.core.baseline import BaselineManager
 from tailtest.core.config import ConfigLoader, DepthMode

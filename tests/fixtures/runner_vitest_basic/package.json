@@ -1,0 +1,12 @@
+{
+  "name": "runner-vitest-basic",
+  "version": "0.0.1",
+  "description": "Fixture project for JSRunner tests (vitest). Has 1 passing + 1 failing + 1 skipped test.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
+}

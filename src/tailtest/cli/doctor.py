@@ -240,7 +240,8 @@ def _check_mcp_server_handshake() -> Check:
 
 
 def _check_runner_detection(root: Path) -> Check:
-    # Self-register
+    # Self-register all runners so the registry is populated before lookup.
+    import tailtest.core.runner.javascript  # noqa: F401
     import tailtest.core.runner.python  # noqa: F401
     from tailtest.core.runner import get_default_registry
 
