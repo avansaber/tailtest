@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 from typing import Any, ClassVar
 
-# Import the Python runner module so it self-registers with the default registry.
+# Import runner modules so they self-register with the default registry.
 # Runners are registered at import time via the @register_runner decorator.
+import tailtest.core.runner.javascript  # noqa: F401
 import tailtest.core.runner.python  # noqa: F401
 from tailtest.core.runner import RunnerNotAvailable, get_default_registry
 from tailtest.mcp.tools.base import BaseTool, ToolResponse, error_response, text_response

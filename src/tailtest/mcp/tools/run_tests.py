@@ -6,7 +6,8 @@ import json
 from typing import Any, ClassVar
 from uuid import uuid4
 
-# Self-register Python runner at import time.
+# Self-register runners at import time.
+import tailtest.core.runner.javascript  # noqa: F401
 import tailtest.core.runner.python  # noqa: F401
 from tailtest.core.baseline import BaselineManager
 from tailtest.core.config import ConfigLoader
