@@ -811,15 +811,19 @@ async def _run_security_phase(
     if depth == DepthMode.QUICK:
         return findings
 
-    if config.security.sast:
+    # Phase 2 Task 2.9: the SAST config is a nested type with an
+    # `enabled` bool and a `ruleset` string. Prefer the explicit
+    # `.enabled` attribute over bare truthiness so a disabled scanner
+    # cannot accidentally pass the gate via SastConfig.__bool__.
+    if config.security.sast.enabled:
         try:
-            sast_runner = SemgrepRunner(root)
+            sast_runner = SemgrepRunner(root, ruleset=config.security.sast.ruleset)
             if sast_runner.is_available():
                 findings.extend(await sast_runner.scan(changed_files, run_id=run_id))
         except Exception as exc:  # noqa: BLE001
             logger.warning("semgrep scan failed: %s", exc)
 
-    if config.security.sca:
+    if config.security.sca.enabled:
         sca_manifests = [f for f in changed_files if f.name in _SCA_MANIFEST_PARSERS]
         if sca_manifests:
             try:
