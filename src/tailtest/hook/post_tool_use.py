@@ -30,7 +30,9 @@ Responsibilities:
    the user sees only new failures (per the BaselineManager contract).
 9. Format the result as a compact JSON block suitable for Claude's
    next-turn context (5KB cap, audit gap #5).
-10. Persist the full batch to ``.tailtest/reports/latest.json``.
+10. Persist the full batch to ``.tailtest/reports/latest.json`` and
+    mirror an HTML view to ``.tailtest/reports/latest.html`` +
+    ``<iso>.html`` (Phase 2 Task 2.6).
 11. Return the stdout payload for the shim to print, or ``None`` when
     nothing meaningful happened.
 
@@ -741,13 +743,29 @@ def _truncate(text: str) -> str:
 
 
 def _persist_report(root: Path, batch: FindingBatch) -> None:
-    """Write the full batch to .tailtest/reports/latest.json (best effort)."""
+    """Write the full batch to ``latest.json`` + ``latest.html`` (best effort).
+
+    Phase 1 wrote only the JSON report. Phase 2 Task 2.6 adds the
+    HTML mirror so the ``/tailtest:report`` skill can point the
+    user at a browser-openable file. Both writes happen in the
+    same try/except block so a failure in one path does not
+    cause the other to leak. The HTML writer is best-effort: if
+    it fails we still want ``latest.json`` to land.
+    """
     try:
         reports_dir = root / ".tailtest" / "reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
         (reports_dir / "latest.json").write_text(batch.model_dump_json(indent=2), encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("could not persist report: %s", exc)
+        logger.warning("could not persist JSON report: %s", exc)
+        return
+
+    try:
+        from tailtest.core.reporter.html import HTMLReporter
+
+        HTMLReporter().write_report(batch, reports_dir)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not persist HTML report: %s", exc)
 
 
 # --- Security phase (Phase 2 Task 2.5) ---------------------------------

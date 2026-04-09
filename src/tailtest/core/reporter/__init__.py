@@ -5,6 +5,7 @@ reporter (Task 2.6). Phase 4 adds the dashboard (which consumes events
 instead of findings directly).
 """
 
+from tailtest.core.reporter.html import HTMLReporter, HTMLReportPaths
 from tailtest.core.reporter.terminal import TerminalReporter
 
-__all__ = ["TerminalReporter"]
+__all__ = ["HTMLReportPaths", "HTMLReporter", "TerminalReporter"]
