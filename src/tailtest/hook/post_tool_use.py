@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -196,8 +197,37 @@ async def run(
         logger.warning("impacted() failed: %s", exc)
         test_ids = []
 
+    # Delta coverage preparation (Phase 1 Task 1.8a). Build a map of
+    # {file_str: set[int]} from the tool payload so the runner can
+    # intersect it with coverage data. Only PythonRunner supports
+    # delta coverage in Phase 1; the JSRunner path is deferred. If
+    # the payload is not an Edit/Write pair we can diff, the map is
+    # empty and delta coverage is skipped automatically.
+    added_lines = _build_added_lines(payload, changed_files)
+    collect_coverage = bool(added_lines) and runner.language == "python"
+
     try:
-        batch = await runner.run(test_ids, run_id=run_id, timeout_seconds=30.0)
+        if collect_coverage:
+            # Narrow to PythonRunner to expose the coverage-specific
+            # parameters on runner.run(). The collect_coverage flag is
+            # only set when runner.language == "python", so this cast
+            # is safe and keeps the type checker happy without a
+            # blanket ignore comment.
+            from tailtest.core.runner.python import PythonRunner
+
+            py_runner = runner if isinstance(runner, PythonRunner) else None
+            if py_runner is not None:
+                batch = await py_runner.run(
+                    test_ids,
+                    run_id=run_id,
+                    timeout_seconds=30.0,
+                    collect_coverage=True,
+                    added_lines=added_lines,
+                )
+            else:
+                batch = await runner.run(test_ids, run_id=run_id, timeout_seconds=30.0)
+        else:
+            batch = await runner.run(test_ids, run_id=run_id, timeout_seconds=30.0)
     except TimeoutError:
         timed_out = FindingBatch(
             run_id=run_id,
@@ -305,6 +335,112 @@ def _is_manifest_file(file_path: Path) -> bool:
     return file_path.name in _MANIFEST_FILENAMES
 
 
+def _build_added_lines(
+    payload: dict,
+    changed_files: list[Path],
+) -> dict[str, set[int]]:
+    """Extract added line numbers from an Edit/Write tool payload.
+
+    Returns a map keyed by file path string (matching the format
+    coverage.py uses for its own file keys) to a set of 1-indexed
+    added line numbers.
+
+    For a ``Write`` tool: the entire file content is treated as
+    added. For an ``Edit`` tool: uses difflib on old_string vs
+    new_string, with line numbers relative to the file's full
+    content after applying the edit (best-effort, uses the on-disk
+    file if readable). MultiEdit is treated the same as Edit for
+    now because the Claude Code contract does not expose a full
+    diff envelope.
+    """
+    tool_name = payload.get("tool_name") or ""
+    tool_input = payload.get("tool_input") or {}
+    if not isinstance(tool_input, dict) or not changed_files:
+        return {}
+
+    result: dict[str, set[int]] = {}
+    primary = changed_files[0]
+
+    if tool_name == "Write":
+        content = tool_input.get("content")
+        if isinstance(content, str):
+            from tailtest.core.coverage import write_added_lines
+
+            lines = write_added_lines(content)
+            if lines:
+                result[str(primary)] = lines
+        return result
+
+    if tool_name in ("Edit", "MultiEdit"):
+        # For Edit we need the full file to compute real line numbers.
+        # Read the current on-disk version (which already reflects the
+        # applied edit, since the hook fires AFTER the tool ran).
+        try:
+            new_content = primary.read_text(encoding="utf-8")
+        except OSError:
+            return {}
+
+        new_string = tool_input.get("new_string") or ""
+
+        if not new_string and "edits" in tool_input:
+            # MultiEdit: concatenate all new_string blocks so the
+            # diff sees the union of changes. We only track the
+            # new_string side because we compare against the current
+            # on-disk file, which already reflects the applied edits.
+            edits = tool_input.get("edits") or []
+            new_string = "\n".join(e.get("new_string", "") for e in edits if isinstance(e, dict))
+
+        if not new_string:
+            return {}
+
+        # Find where new_string lives in the current file and return
+        # those line numbers as "added". This is a best-effort
+        # approximation; if new_string appears multiple times or does
+        # not appear literally (because Claude added extra context),
+        # we fall back to "the whole file is added".
+        file_lines = new_content.splitlines()
+        new_lines = new_string.splitlines()
+        if not new_lines:
+            return {}
+
+        match_start = _find_block_start(file_lines, new_lines)
+        if match_start is None:
+            # Could not locate the block; fall back to treating the
+            # whole file as new. Safer to over-report new lines than
+            # to skip delta coverage entirely.
+            from tailtest.core.coverage import write_added_lines
+
+            result[str(primary)] = write_added_lines(new_content)
+            return result
+
+        added_line_numbers = {
+            match_start + i + 1  # 1-indexed
+            for i in range(len(new_lines))
+        }
+        result[str(primary)] = added_line_numbers
+        return result
+
+    return {}
+
+
+def _find_block_start(haystack: Sequence[str], needle: Sequence[str]) -> int | None:
+    """Return the 0-indexed start of ``needle`` inside ``haystack``, or None.
+
+    Simple linear search. Performance is fine because both sequences
+    come from a single file, typically under a few hundred lines.
+    ``Sequence`` covariance avoids list invariance friction with
+    ``list[LiteralString]`` callers.
+    """
+    if not needle or not haystack or len(needle) > len(haystack):
+        return None
+    needle_list = list(needle)
+    haystack_list = list(haystack)
+    for i in range(len(haystack_list) - len(needle_list) + 1):
+        if haystack_list[i : i + len(needle_list)] == needle_list:
+            return i
+    return None
+
+
 # --- Runner selection --------------------------------------------------
 
 
@@ -375,6 +511,26 @@ def _format_additional_context(
     lines: list[str] = [batch.summary_line]
     if manifest_rescanned:
         lines.append("(manifest rescan: profile refreshed before this run)")
+
+    # Delta coverage line (Phase 1 Task 1.8a). Only shows when the
+    # runner computed delta coverage this run. Format: one line with
+    # the percentage + the count of uncovered new lines, plus up to
+    # 3 uncovered file:line entries so Claude can target them.
+    if batch.delta_coverage_pct is not None:
+        uncovered_count = len(batch.uncovered_new_lines)
+        if uncovered_count == 0:
+            lines.append(f"delta coverage: {batch.delta_coverage_pct:.1f}%")
+        else:
+            lines.append(
+                f"delta coverage: {batch.delta_coverage_pct:.1f}% "
+                f"({uncovered_count} new line{'s' if uncovered_count != 1 else ''} uncovered)"
+            )
+            for entry in batch.uncovered_new_lines[:3]:
+                file_str = entry.get("file", "?")
+                line_num = entry.get("line", 0)
+                lines.append(f"  uncovered: {file_str}:{line_num}")
+            if uncovered_count > 3:
+                lines.append(f"  ... {uncovered_count - 3} more uncovered new lines")
 
     for f in top_findings:
         location = f"{f.file}:{f.line}" if f.line else str(f.file)
