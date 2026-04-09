@@ -242,6 +242,12 @@ class FindingBatch(BaseModel):
     tests_passed: int = 0
     tests_failed: int = 0
     tests_skipped: int = 0
+    # Delta coverage fields, Phase 1 Task 1.8a. Populated when the
+    # runner was invoked with coverage collection AND a diff of
+    # added lines. `None` means "not computed this run", distinct
+    # from 0.0 which means "new code present but nothing covered".
+    delta_coverage_pct: float | None = None
+    uncovered_new_lines: list[dict[str, Any]] = Field(default_factory=list)
 
     @property
     def counts(self) -> dict[str, int]:

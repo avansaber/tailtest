@@ -21,6 +21,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 
+from tailtest.core.coverage.delta import DEFAULT_DELTA_COVERAGE_THRESHOLD
 from tailtest.core.findings.schema import Finding, FindingBatch, Severity
 
 # --- ANSI helpers ---------------------------------------------------------
@@ -106,6 +107,13 @@ class TerminalReporter:
         """Render a batch to a terminal-ready string."""
         lines: list[str] = [self._format_summary(batch)]
 
+        # Delta coverage line, when present (Phase 1 Task 1.8a). Sits
+        # between the summary and the finding details so the user sees
+        # it without scrolling even in a clean run with no findings.
+        coverage_line = self._format_delta_coverage(batch)
+        if coverage_line:
+            lines.append(coverage_line)
+
         findings_to_show = batch.findings if show_baseline else batch.new_findings
 
         if findings_to_show:
@@ -188,6 +196,58 @@ class TerminalReporter:
                 components.insert(1, f"{self._c.green}clean{self._c.reset}")
 
         return " ".join(components)
+
+    def _format_delta_coverage(self, batch: FindingBatch) -> str | None:
+        """Render the delta coverage line, or None when not computed.
+
+        Shows the percentage and a compact hint when the percentage
+        is below the default threshold. The line looks like:
+
+            delta coverage: 72.0% (8 of 11 new lines covered)
+
+        When delta coverage is not available (runner did not collect
+        it or there were no new lines), this returns None so callers
+        can skip the line entirely.
+        """
+        if batch.delta_coverage_pct is None:
+            return None
+
+        c = self._c
+        pct = batch.delta_coverage_pct
+        uncovered = len(batch.uncovered_new_lines)
+        total_new = batch.uncovered_new_lines  # placeholder for count below
+        # Total new lines = uncovered + covered. We do not carry the
+        # covered count explicitly in FindingBatch, so infer it from
+        # the percentage. This is exact when pct was computed from
+        # integer ratios.
+        if pct >= 100.0:
+            total = uncovered  # all new lines covered, uncovered list may be empty
+            covered = uncovered
+        elif pct <= 0.0:
+            total = max(uncovered, 1)
+            covered = 0
+        else:
+            # Reverse the percentage to get the total. total_uncovered / total = 1 - pct/100
+            # => total = uncovered / (1 - pct/100). Guard against float rounding.
+            ratio = 1.0 - (pct / 100.0)
+            total = int(round(uncovered / ratio)) if ratio > 0 else uncovered
+            covered = total - uncovered
+
+        if pct >= DEFAULT_DELTA_COVERAGE_THRESHOLD:
+            color = c.green
+        elif pct >= 50.0:
+            color = c.yellow
+        else:
+            color = c.red
+        _ = total_new  # silence unused-variable warning in the fallback branches
+
+        if total == 0:
+            return None
+
+        return (
+            f"  {color}delta coverage: {pct:.1f}%{c.reset} "
+            f"{c.dim}({covered} of {total} new lines covered){c.reset}"
+        )
 
     def _format_finding(self, finding: Finding) -> list[str]:
         """Build the 3-6 line detail block for a single finding."""

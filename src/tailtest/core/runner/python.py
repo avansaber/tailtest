@@ -246,11 +246,25 @@ class PythonRunner(BaseRunner):
         *,
         run_id: str,
         timeout_seconds: float = 30.0,
+        collect_coverage: bool = False,
+        added_lines: dict[str, set[int]] | None = None,
     ) -> FindingBatch:
         """Execute the given tests and return a structured FindingBatch.
 
         If ``test_ids`` is empty, pytest will run every test. Callers that
         want a no-op should not call this method.
+
+        When ``collect_coverage`` is True and the target project has
+        ``coverage`` in its venv (or on PATH), tests run under
+        ``coverage run -m pytest ...`` and the coverage data gets
+        parsed into a JSON report. If ``added_lines`` is also provided
+        (a map of ``{file_str: set[int]}`` with 1-indexed line numbers
+        that the most recent edit introduced or modified), the runner
+        computes delta coverage and populates
+        ``FindingBatch.delta_coverage_pct`` and
+        ``FindingBatch.uncovered_new_lines``. Any coverage-collection
+        failure degrades silently to a run without coverage rather
+        than blocking the hot loop.
         """
         pytest_path = self._resolve_pytest_path()
         if pytest_path is None:
@@ -261,15 +275,47 @@ class PythonRunner(BaseRunner):
                 duration_ms=0.0,
             )
 
+        # Resolve coverage binary if coverage collection was requested.
+        # Missing coverage downgrades the run to "no coverage" rather
+        # than erroring out, matching the testmon fallback pattern.
+        coverage_bin: str | None = None
+        if collect_coverage:
+            from tailtest.core.coverage import resolve_coverage_bin
+
+            coverage_bin = resolve_coverage_bin(self.project_root)
+            if coverage_bin is None:
+                logger.info(
+                    "coverage.py not found in project venv or on PATH; "
+                    "delta coverage unavailable for this run"
+                )
+
         with tempfile.TemporaryDirectory(prefix="tailtest-pytest-") as tmp_dir:
             junit_path = Path(tmp_dir) / "junit.xml"
-            cmd = [
-                pytest_path,
-                "--tb=short",
-                "-q",
-                "--no-header",
-                f"--junitxml={junit_path}",
-            ]
+            coverage_data_file: Path | None = None
+            coverage_json_file: Path | None = None
+
+            if coverage_bin:
+                coverage_data_file = Path(tmp_dir) / ".coverage"
+                coverage_json_file = Path(tmp_dir) / "coverage.json"
+                cmd = [
+                    coverage_bin,
+                    "run",
+                    f"--data-file={coverage_data_file}",
+                    "-m",
+                    "pytest",
+                    "--tb=short",
+                    "-q",
+                    "--no-header",
+                    f"--junitxml={junit_path}",
+                ]
+            else:
+                cmd = [
+                    pytest_path,
+                    "--tb=short",
+                    "-q",
+                    "--no-header",
+                    f"--junitxml={junit_path}",
+                ]
             if test_ids:
                 cmd.extend(test_ids)
 
@@ -287,7 +333,7 @@ class PythonRunner(BaseRunner):
             duration_ms = self._monotonic_ms() - start_time
 
             if not junit_path.exists():
-                # pytest crashed before writing the JUnit file — capture stderr
+                # pytest crashed before writing the JUnit file, capture stderr.
                 return self._build_crash_batch(
                     run_id=run_id,
                     stderr=result.stderr,
@@ -296,7 +342,7 @@ class PythonRunner(BaseRunner):
                 )
 
             try:
-                return self._parse_junit(
+                batch = self._parse_junit(
                     junit_xml=junit_path.read_text(encoding="utf-8"),
                     run_id=run_id,
                     duration_ms=duration_ms,
@@ -309,6 +355,45 @@ class PythonRunner(BaseRunner):
                     stdout=result.stdout,
                     duration_ms=duration_ms,
                 )
+
+            # Delta coverage pass (Phase 1 Task 1.8a). Only runs when
+            # the caller requested coverage, coverage.py was available,
+            # and the caller passed a map of added lines. Any failure
+            # here is swallowed so the hot loop never breaks because
+            # delta coverage could not be computed.
+            if (
+                coverage_bin
+                and coverage_data_file
+                and coverage_json_file
+                and coverage_data_file.exists()
+                and added_lines
+            ):
+                try:
+                    await self.shell_run(
+                        [
+                            coverage_bin,
+                            "json",
+                            f"--data-file={coverage_data_file}",
+                            "-o",
+                            str(coverage_json_file),
+                        ],
+                        timeout_seconds=30.0,
+                    )
+                except (RunnerNotAvailable, TimeoutError) as exc:
+                    logger.info("coverage json failed: %s", exc)
+                else:
+                    if coverage_json_file.exists():
+                        from tailtest.core.coverage import (
+                            compute_delta_coverage,
+                            parse_coverage_json,
+                        )
+
+                        covered = parse_coverage_json(coverage_json_file)
+                        added_paths = {Path(k): set(v) for k, v in added_lines.items()}
+                        report = compute_delta_coverage(added_paths, covered)
+                        batch = batch.model_copy(update=report.to_finding_batch_fields())
+
+            return batch
 
     # --- Parsing helpers ---
 
