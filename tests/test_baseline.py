@@ -174,3 +174,117 @@ def test_update_from_decrements_streak_for_recovered_tests(tmp_path: Path) -> No
 
     # Streak decremented
     assert result.entries[entry.id].failure_streak == 1
+
+
+# --- Phase 2 Task 2.7: baseline + hot loop integration ---------------
+
+
+def test_apply_to_filters_security_findings_uniformly(tmp_path: Path) -> None:
+    """Pre-baselined security findings + a new test failure round-trip correctly.
+
+    This is the end-to-end regression guard for Task 2.7: a mixed
+    batch containing a secret that was already in the baseline AND
+    a fresh test failure should return with in_baseline=True for
+    the secret and in_baseline=False for the test failure, so the
+    terminal reporter shows ONLY the test failure as "new".
+    """
+    mgr = BaselineManager(tmp_path / ".tailtest")
+
+    # Seed the baseline with a secret and a SAST finding.
+    secret = _make_finding(FindingKind.SECRET, file="src/config.py", line=7, message="AWS key")
+    sast = _make_finding(FindingKind.SAST, file="src/app.py", line=42, message="eval(x)")
+    mgr.save(
+        BaselineFile(
+            entries={
+                secret.id: BaselineEntry.from_finding(secret),
+                sast.id: BaselineEntry.from_finding(sast),
+            }
+        )
+    )
+
+    # New batch contains the same two findings PLUS a fresh test
+    # failure. The apply_to filter should mark the first two as
+    # baselined and leave the test failure untouched.
+    test_fail = _make_finding(
+        FindingKind.TEST_FAILURE,
+        file="tests/test_app.py",
+        line=15,
+        message="assert 4 == 5",
+    )
+    batch = FindingBatch(
+        run_id="r-mixed",
+        depth="standard",
+        findings=[secret, sast, test_fail],
+    )
+    result = mgr.apply_to(batch)
+
+    in_baseline = {f.id: f.in_baseline for f in result.findings}
+    assert in_baseline[secret.id] is True
+    assert in_baseline[sast.id] is True
+    assert in_baseline[test_fail.id] is False
+
+    # new_findings property returns only the non-baselined items,
+    # which is what the summary line uses for the "new issue" count.
+    new = [f for f in result.new_findings]
+    assert len(new) == 1
+    assert new[0].id == test_fail.id
+
+
+def test_update_from_baselines_mixed_run_atomically(tmp_path: Path) -> None:
+    """A green run with new security findings adds them, not the passing tests."""
+    mgr = BaselineManager(tmp_path / ".tailtest")
+    new_secret = _make_finding(
+        FindingKind.SECRET, file="src/new.py", line=3, message="hardcoded token"
+    )
+    new_sca = _make_finding(
+        FindingKind.SCA,
+        file="pyproject.toml",
+        line=0,
+        message="requests 2.0.0 GHSA-xxxx",
+    )
+    batch = FindingBatch(
+        run_id="r-green",
+        depth="standard",
+        tests_passed=10,
+        findings=[new_secret, new_sca],
+    )
+    result = mgr.update_from(batch)
+    assert new_secret.id in result.ids
+    assert new_sca.id in result.ids
+
+
+def test_baseline_yaml_contains_documentation_header(tmp_path: Path) -> None:
+    """Generated baseline.yaml should self-document for curious contributors."""
+    mgr = BaselineManager(tmp_path / ".tailtest")
+    f = _make_finding(FindingKind.SAST, file="src/x.py", line=1, message="m")
+    mgr.save(BaselineFile(entries={f.id: BaselineEntry.from_finding(f)}))
+
+    text = mgr.baseline_path.read_text(encoding="utf-8")
+    assert "# .tailtest/baseline.yaml" in text
+    # The word "debt" must be in the header (the full phrase
+    # "existing debt" may be line-wrapped by the header formatter).
+    assert "debt" in text
+    assert "/tailtest:debt" in text
+    assert "Semgrep / SonarQube convention" in text
+    # The header must sit BEFORE the YAML body so YAML comments
+    # land at the top of the file, not interleaved with entries.
+    header_end = text.index("schema_version:")
+    header = text[:header_end]
+    assert header.count("#") >= 5  # multi-line comment block
+
+
+def test_baseline_yaml_with_header_still_parses(tmp_path: Path) -> None:
+    """BaselineFile.from_yaml must tolerate the documentation header.
+
+    YAML comments are stripped by safe_load so the header should
+    not affect deserialization, but we want an explicit regression
+    test so a future header change cannot silently break parsing.
+    """
+    mgr = BaselineManager(tmp_path / ".tailtest")
+    f = _make_finding(FindingKind.SAST, file="src/x.py", line=5, message="m")
+    original = BaselineFile(entries={f.id: BaselineEntry.from_finding(f)})
+    mgr.save(original)
+
+    restored = mgr.load()
+    assert restored.ids == original.ids
+    assert restored.entries[f.id].kind == FindingKind.SAST.value

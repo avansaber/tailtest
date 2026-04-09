@@ -28,6 +28,8 @@ EXPECTED_SKILLS = {
     "gen",
     "report",
     "setup",
+    # Phase 2 Task 2.7 added the debt review skill.
+    "debt",
 }
 
 # Skills that take a positional argument via $ARGUMENTS and therefore
