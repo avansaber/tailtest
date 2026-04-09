@@ -88,6 +88,7 @@ class OSVVulnerability:
     references: list[str] = field(default_factory=list)
     affected_package: str = ""
     affected_version: str = ""
+    fixed_version: str = ""  # concrete version where the vuln was fixed
     aliases: list[str] = field(default_factory=list)
 
 
@@ -324,6 +325,11 @@ class OSVLookup:
         # since that is where the user fixes them.
         manifest_hint = "pyproject.toml" if ref.ecosystem == "PyPI" else "package.json"
 
+        # Populate the security metadata fields so reporters and the
+        # baseline manager can surface CVSS, package version, fix
+        # version, and advisory URL without re-parsing the message.
+        cvss_value = vuln.cvss_score if vuln.cvss_score > 0 else None
+
         return Finding.create(
             kind=FindingKind.SCA,
             severity=severity,
@@ -334,6 +340,11 @@ class OSVLookup:
             rule_id=f"osv::{vuln.vuln_id}",
             doc_link=doc_link,
             claude_hint=claude_hint,
+            cvss_score=cvss_value,
+            package_name=ref.name,
+            package_version=ref.version or None,
+            fixed_version=vuln.fixed_version or None,
+            advisory_url=doc_link,
         )
 
 
@@ -425,6 +436,7 @@ def _osv_vuln_from_dict(raw: dict[str, Any]) -> OSVVulnerability | None:
 
     affected_pkg = ""
     affected_version = ""
+    fixed_version = ""
     raw_affected = raw.get("affected")
     if isinstance(raw_affected, list) and raw_affected:
         first = raw_affected[0]
@@ -441,9 +453,16 @@ def _osv_vuln_from_dict(raw: dict[str, Any]) -> OSVVulnerability | None:
                     events = first_range.get("events")
                     if isinstance(events, list):
                         for event in events:
-                            if isinstance(event, dict) and "introduced" in event:
+                            if not isinstance(event, dict):
+                                continue
+                            # OSV range events come as separate dicts:
+                            # one `{"introduced": "..."}`, one
+                            # `{"fixed": "..."}`. Walk the whole list
+                            # so we pick up both.
+                            if "introduced" in event and not affected_version:
                                 affected_version = f"from {event['introduced']}"
-                                break
+                            if "fixed" in event and not fixed_version:
+                                fixed_version = str(event["fixed"])
 
     return OSVVulnerability(
         vuln_id=vuln_id,
@@ -453,6 +472,7 @@ def _osv_vuln_from_dict(raw: dict[str, Any]) -> OSVVulnerability | None:
         references=references,
         affected_package=affected_pkg,
         affected_version=affected_version,
+        fixed_version=fixed_version,
         aliases=aliases,
     )
 
@@ -467,6 +487,7 @@ def _osv_vuln_to_dict(vuln: OSVVulnerability) -> dict[str, Any]:
         "references": list(vuln.references),
         "affected_package": vuln.affected_package,
         "affected_version": vuln.affected_version,
+        "fixed_version": vuln.fixed_version,
         "aliases": list(vuln.aliases),
     }
 
@@ -506,6 +527,7 @@ def _osv_vuln_from_cache_dict(raw: dict[str, Any]) -> OSVVulnerability | None:
         references=references,
         affected_package=str(raw.get("affected_package") or ""),
         affected_version=str(raw.get("affected_version") or ""),
+        fixed_version=str(raw.get("fixed_version") or ""),
         aliases=aliases,
     )
 

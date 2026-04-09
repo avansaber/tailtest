@@ -206,6 +206,75 @@ def test_finding_roundtrip_json() -> None:
     assert restored == finding
 
 
+def test_finding_roundtrip_all_security_fields() -> None:
+    """All eight Phase 2 security metadata fields survive a JSON roundtrip.
+
+    Covers every optional field added for Tasks 2.1 through 2.3:
+    cwe_id, cvss_score, epss_score, kev_listed, package_name,
+    package_version, fixed_version, advisory_url. Doubles as a
+    regression guard against accidental schema breakage.
+    """
+    finding = Finding.create(
+        kind=FindingKind.SCA,
+        severity=Severity.HIGH,
+        file="pyproject.toml",
+        line=0,
+        message="requests 2.0.0 : GHSA-j8r2-6x86-q33q : vuln summary",
+        run_id="run-sec",
+        rule_id="osv::GHSA-j8r2-6x86-q33q",
+        cwe_id="CWE-601",
+        cvss_score=8.1,
+        epss_score=0.42,
+        kev_listed=True,
+        package_name="requests",
+        package_version="2.0.0",
+        fixed_version="2.31.0",
+        advisory_url="https://github.com/advisories/GHSA-j8r2-6x86-q33q",
+        claude_hint="CVSS 8.1 | GHSA-j8r2-6x86-q33q | upgrade to 2.31.0",
+    )
+    assert finding.cwe_id == "CWE-601"
+    assert finding.cvss_score == 8.1
+    assert finding.epss_score == 0.42
+    assert finding.kev_listed is True
+    assert finding.package_name == "requests"
+    assert finding.package_version == "2.0.0"
+    assert finding.fixed_version == "2.31.0"
+    assert finding.advisory_url == "https://github.com/advisories/GHSA-j8r2-6x86-q33q"
+
+    # Roundtrip: serialize to JSON, deserialize, compare full equality.
+    json_str = finding.model_dump_json()
+    restored = Finding.model_validate_json(json_str)
+    assert restored == finding
+    assert restored.cvss_score == 8.1
+    assert restored.fixed_version == "2.31.0"
+    assert restored.kev_listed is True
+
+
+def test_finding_security_fields_default_to_none() -> None:
+    """Findings without security metadata leave every security field as None.
+
+    Non-security findings (test failures, lint warnings, coverage
+    gaps) MUST not accidentally inherit security metadata. This is
+    the backwards-compat guard for the Phase 1 finding shape.
+    """
+    finding = Finding.create(
+        kind=FindingKind.TEST_FAILURE,
+        severity=Severity.HIGH,
+        file="tests/test_example.py",
+        line=42,
+        message="AssertionError: expected 3, got 7",
+        run_id="run-003",
+    )
+    assert finding.cwe_id is None
+    assert finding.cvss_score is None
+    assert finding.epss_score is None
+    assert finding.kev_listed is None
+    assert finding.package_name is None
+    assert finding.package_version is None
+    assert finding.fixed_version is None
+    assert finding.advisory_url is None
+
+
 def test_finding_extra_fields_rejected() -> None:
     """Pydantic extra='forbid' — unknown fields must error."""
     with pytest.raises(ValidationError):

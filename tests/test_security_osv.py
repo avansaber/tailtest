@@ -537,6 +537,36 @@ def test_parse_osv_affected_package_metadata() -> None:
     vuln = result[0][0]
     assert vuln.affected_package == "requests"
     assert "2.0.0" in vuln.affected_version
+    # Task 2.4: fixed version extracted from the "fixed" event.
+    assert vuln.fixed_version == "2.31.0"
+
+
+def test_parse_osv_fixed_version_absent_stays_empty() -> None:
+    """Advisories without a fixed version yield an empty string."""
+    data = {
+        "results": [
+            {
+                "vulns": [
+                    {
+                        "id": "GHSA-y",
+                        "affected": [
+                            {
+                                "package": {"name": "foo", "ecosystem": "PyPI"},
+                                "ranges": [
+                                    {
+                                        "type": "ECOSYSTEM",
+                                        "events": [{"introduced": "1.0"}],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        ]
+    }
+    result = parse_osv_batch_response(data, batch_size=1)
+    assert result[0][0].fixed_version == ""
 
 
 def test_osv_vuln_from_dict_missing_fields_uses_defaults() -> None:
@@ -695,6 +725,7 @@ def test_osv_vulnerability_defaults() -> None:
     assert vuln.aliases == []
     assert vuln.affected_package == ""
     assert vuln.affected_version == ""
+    assert vuln.fixed_version == ""
 
 
 # --- OSVLookup end-to-end with mocked httpx client --------------------
@@ -788,6 +819,23 @@ async def test_osv_vulnerable_package_produces_finding(tmp_path: Path) -> None:
                                         "url": "https://github.com/psf/requests/advisories/GHSA-test-1234"
                                     }
                                 ],
+                                "affected": [
+                                    {
+                                        "package": {
+                                            "name": "requests",
+                                            "ecosystem": "PyPI",
+                                        },
+                                        "ranges": [
+                                            {
+                                                "type": "ECOSYSTEM",
+                                                "events": [
+                                                    {"introduced": "2.0.0"},
+                                                    {"fixed": "2.31.0"},
+                                                ],
+                                            }
+                                        ],
+                                    }
+                                ],
                             }
                         ]
                     }
@@ -809,6 +857,13 @@ async def test_osv_vulnerable_package_produces_finding(tmp_path: Path) -> None:
     assert f.claude_hint is not None
     assert "CVSS 9.5" in f.claude_hint
     assert str(f.file) == "pyproject.toml"
+    # Task 2.4: SCA findings carry full security metadata so
+    # reporters don't have to re-parse the message.
+    assert f.cvss_score == 9.5
+    assert f.package_name == "requests"
+    assert f.package_version == "2.0.0"
+    assert f.fixed_version == "2.31.0"
+    assert f.advisory_url == ("https://github.com/psf/requests/advisories/GHSA-test-1234")
 
 
 @pytest.mark.asyncio
@@ -943,6 +998,7 @@ async def test_osv_cache_round_trips_vulnerability(tmp_path: Path) -> None:
         references=["https://example.com/a"],
         affected_package="foo",
         affected_version="from 1.0",
+        fixed_version="1.2.3",
         aliases=["CVE-2024-9999"],
     )
     lookup._save_cached(ref, [vuln])
@@ -955,6 +1011,7 @@ async def test_osv_cache_round_trips_vulnerability(tmp_path: Path) -> None:
     assert loaded_vuln.cvss_score == 7.5
     assert loaded_vuln.references == ["https://example.com/a"]
     assert loaded_vuln.aliases == ["CVE-2024-9999"]
+    assert loaded_vuln.fixed_version == "1.2.3"
 
 
 def test_osv_cache_miss_when_file_absent(tmp_path: Path) -> None:
