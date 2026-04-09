@@ -52,6 +52,39 @@ logger = logging.getLogger(__name__)
 
 BASELINE_SCHEMA_VERSION = 1
 
+# Documentation header prepended to every baseline.yaml write.
+# Phase 2 Task 2.7 added this so contributors who open the file
+# understand what they are looking at without digging through the
+# tailtest source tree. Keep it short; the file is still meant to
+# be skimmed, not read linearly.
+_BASELINE_YAML_HEADER = """\
+# .tailtest/baseline.yaml
+#
+# This file records findings that tailtest has accepted as "existing
+# debt" for this project. Findings listed here are NOT shown in the
+# hot loop summary; tailtest only surfaces findings whose stable id
+# is NOT in this file. This is the Semgrep / SonarQube convention.
+#
+# How entries get added:
+# - Secret, SAST, SCA, AI-surface, lint, and coverage-gap findings
+#   land here on first detection.
+# - Test failures need 3 consecutive failing runs before being
+#   baselined (so truly broken tests stay visible; flaky tests get
+#   silenced). A green run decrements the failure streak.
+#
+# How to remove an entry: delete its block and commit. A subsequent
+# run that rediscovers the finding will NOT re-add it until a green
+# run + update_from sequence passes through.
+#
+# Reviewing accepted debt: run `/tailtest:debt` in Claude Code, or
+# open this file directly. The `reason` field on each entry is
+# meant to carry human justification; edit it freely.
+#
+# This file IS meant to be committed to git so every contributor
+# sees the same accepted-debt set.
+
+"""
+
 # Kinds that get baselined immediately on first detection (content-level,
 # stable, not subject to flakiness).
 _IMMEDIATE_BASELINE_KINDS: frozenset[FindingKind] = frozenset(
@@ -134,13 +167,23 @@ class BaselineFile:
         return set(self.entries.keys())
 
     def to_yaml(self) -> str:
-        """Serialize to YAML."""
+        """Serialize to YAML with a documentation header block.
+
+        The header comment is load-bearing: it is the first thing
+        an engineer sees when they open `baseline.yaml`, and it
+        explains what the file is for, how entries get added, how
+        to remove them, and what the flakiness policy is. Without
+        the header, a curious contributor who opens the file just
+        sees a list of cryptic 16-char hashes and (justifiably)
+        assumes it is a tool artifact they should not touch.
+        """
         doc = {
             "schema_version": self.schema_version,
             "generated_at": self.generated_at.isoformat(),
             "entries": [self.entries[k].to_dict() for k in sorted(self.entries)],
         }
-        return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True)
+        body = yaml.safe_dump(doc, sort_keys=False, allow_unicode=True)
+        return _BASELINE_YAML_HEADER + body
 
     @classmethod
     def from_yaml(cls, text: str) -> BaselineFile:
