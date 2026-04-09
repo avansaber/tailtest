@@ -1,0 +1,176 @@
+"""SessionStart hook runtime (Phase 1 Task 1.6).
+
+Runs once at Claude Code session startup. Responsibilities per the
+Task 1.6 spec:
+
+1. Parse the session_id from the stdin payload (best effort; empty is
+   fine, we fall back to "unknown").
+2. Check for ``.tailtest/config.yaml``. If missing, create it with
+   default values via ConfigLoader.ensure_default.
+3. Run the shallow project scan and save the profile to
+   ``.tailtest/profile.json``.
+4. Handle empty projects (audit gap #1): if the scan finds no source
+   files, skip the rest of the bootstrap and emit a gentle message.
+5. Handle scan failures (audit gap #2b): any scanner exception is
+   caught, logged at warning level, and surfaces as an informative
+   message without crashing the session.
+6. Reset the session-state.json file for the new session so the
+   auto-offer debounce cache does not carry offers from a prior
+   session. This also writes the new session_id to the state file.
+7. Emit a single-line ``hookSpecificOutput`` / ``additionalContext``
+   envelope describing what tailtest sees and what depth mode is in
+   effect.
+
+The repo-root ``hooks/session_start.py`` file is a thin shim that
+reads stdin, calls this library, prints the result, and exits 0.
+
+This runtime does NOT warm the TIA cache in Phase 1 (the plan says
+to, but PythonRunner does not yet persist a TIA cache file on disk
+so there is nothing to warm). When Phase 1 adds a persistent TIA
+cache, a call goes here.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from tailtest.core.config import ConfigLoader
+from tailtest.core.scan import ProjectScanner
+from tailtest.core.scan.profile import ScanStatus
+from tailtest.core.session_state import SessionState, save_session_state
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SessionStartResult:
+    """Return value of the SessionStart runtime.
+
+    ``stdout_json`` is the JSON string the shim should print (the
+    hookSpecificOutput envelope), or None if the hook should emit
+    nothing. ``reason`` is a diagnostic for logs.
+    """
+
+    stdout_json: str | None
+    reason: str
+
+
+async def run(
+    stdin_text: str,
+    *,
+    project_root: Path | None = None,
+) -> SessionStartResult:
+    """Bootstrap a tailtest session and emit the init message.
+
+    Parameters mirror ``tailtest.hook.post_tool_use.run`` for
+    consistency. ``stdin_text`` is the raw JSON from the hook
+    process's stdin; ``project_root`` defaults to cwd.
+    """
+    root = (project_root or Path.cwd()).resolve()
+    payload = _parse_stdin(stdin_text)
+    session_id = _extract_session_id(payload)
+
+    tailtest_dir = root / ".tailtest"
+
+    # Load config or bootstrap defaults. This always succeeds (the
+    # loader returns defaults on any parse error and logs a warning).
+    loader = ConfigLoader(tailtest_dir)
+    config = loader.ensure_default()
+
+    # Run the shallow scan. Catch every exception so an empty or
+    # broken project cannot crash the session start path.
+    scan_status: str = "ok"
+    scan_message: str = ""
+    profile = None
+    try:
+        scanner = ProjectScanner(root)
+        profile = scanner.scan_shallow()
+        scanner.save_profile(profile)
+        if profile.scan_status == ScanStatus.FAILED:
+            scan_status = "failed"
+            scan_message = "scan failed, run tailtest doctor to debug"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("SessionStart scan failed: %s", exc)
+        scan_status = "failed"
+        scan_message = f"scan exception: {exc}"
+
+    # Reset the session-state cache for the new session id so auto-
+    # offer debouncing does not carry offers from a prior session.
+    new_state = SessionState(session_id=session_id or "unknown")
+    save_session_state(tailtest_dir, new_state)
+
+    # Build the one-line additionalContext envelope.
+    if scan_status == "failed":
+        message = f"tailtest: {scan_message}"
+    elif profile is None or _profile_is_empty(profile):
+        # Audit gap #1: empty project. Be gentle; the user may not
+        # have written code yet.
+        message = "tailtest: ready, I will start helping once you have code to test."
+    else:
+        primary = profile.primary_language or "unknown"
+        runners_list = (
+            [f.name for f in profile.frameworks_detected] if profile.frameworks_detected else []
+        )
+        runner_part = runners_list[0] if runners_list else "no test runner detected"
+        message = (
+            f"tailtest: initialized in {config.depth.value} mode, "
+            f"{primary} project, {runner_part}. Run /tailtest:status for options."
+        )
+
+    envelope = {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": message,
+        }
+    }
+    return SessionStartResult(stdout_json=json.dumps(envelope), reason=scan_status)
+
+
+# --- Helpers ------------------------------------------------------------
+
+
+def _parse_stdin(stdin_text: str) -> dict[str, Any] | None:
+    """Parse the SessionStart stdin payload. Returns None on any failure.
+
+    Same defensive-return-None pattern as the PostToolUse hook. A
+    malformed or empty stdin must not crash the session start.
+    """
+    if not stdin_text or not stdin_text.strip():
+        return None
+    try:
+        data = json.loads(stdin_text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _extract_session_id(payload: dict[str, Any] | None) -> str | None:
+    """Pull session_id out of the payload, or return None."""
+    if payload is None:
+        return None
+    session_id = payload.get("session_id")
+    if isinstance(session_id, str) and session_id:
+        return session_id
+    return None
+
+
+def _profile_is_empty(profile: Any) -> bool:
+    """Return True when the scanner found no code to care about.
+
+    A project is "empty" for SessionStart purposes when:
+    - primary_language is None or empty, AND
+    - languages map is empty or sums to zero files
+
+    Per audit gap #1, we treat this as "come back when there is code",
+    not an error.
+    """
+    primary = getattr(profile, "primary_language", None)
+    languages = getattr(profile, "languages", {}) or {}
+    total_language_files = sum(v for v in languages.values() if isinstance(v, int))
+    return not primary and total_language_files == 0
