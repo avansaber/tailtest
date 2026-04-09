@@ -203,18 +203,38 @@ async def test_run_tests_empty_project_returns_empty_batch(tmp_path: Path) -> No
     assert batch["tests_failed"] == 0
 
 
-# --- generate_tests (stub) ----------------------------------------------
+# --- generate_tests -----------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_generate_tests_is_phase1_stub() -> None:
+async def test_generate_tests_rejects_missing_file_arg() -> None:
+    """Missing 'file' argument is surfaced as an error response."""
     tool = GenerateTestsTool(FIXTURE_PASSING)
-    response = await tool.invoke({"file": "src/fixture_passing/__init__.py"})
+    response = await tool.invoke({})
+    assert response["isError"] is True
+
+
+@pytest.mark.asyncio
+async def test_generate_tests_skips_unsupported_language(tmp_path: Path) -> None:
+    """An unsupported source language is surfaced as a skipped status, not an error."""
+    (tmp_path / "example.rs").write_text("fn main() {}\n")
+    tool = GenerateTestsTool(tmp_path)
+    response = await tool.invoke({"file": "example.rs", "project_root": str(tmp_path)})
     assert response["isError"] is False
     payload = json.loads(response["content"][0]["text"])
-    assert payload["status"] == "not_yet_implemented"
-    assert payload["scheduled_checkpoint"] == "F"
-    assert payload["tracking_task"] == "1.12b"
+    assert payload["status"] == "skipped"
+    assert "unsupported language" in payload["reason"]
+
+
+@pytest.mark.asyncio
+async def test_generate_tests_skips_missing_source(tmp_path: Path) -> None:
+    """A nonexistent source file surfaces as a skipped status."""
+    tool = GenerateTestsTool(tmp_path)
+    response = await tool.invoke({"file": "nowhere.py", "project_root": str(tmp_path)})
+    assert response["isError"] is False
+    payload = json.loads(response["content"][0]["text"])
+    assert payload["status"] == "skipped"
+    assert "does not exist" in payload["reason"]
 
 
 # --- get_baseline -------------------------------------------------------
