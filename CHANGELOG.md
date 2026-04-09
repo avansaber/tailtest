@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha.1] - 2026-04-09
+
+### Added
+- **JavaScript/TypeScript runner** (`JSRunner`) supporting vitest (preferred) and jest, with auto-selection from package.json devDependencies and config files. Native TIA via `vitest related` / `jest --findRelatedTests --listTests`. Heuristic fallback for when native TIA fails.
+- **Test generator** (`TestGenerator`) that produces starter tests via `claude -p` subprocess. Supports Python (pytest), TypeScript (vitest by default, jest override), and JavaScript (vitest). Mandatory "review before committing" header, per-language compile check, never commits automatically.
+- **PostToolUse hook** real implementation. Parses Claude Code's edit payload, runs impacted tests via the runner registry, applies baseline filtering, formats findings as `hookSpecificOutput` for the next turn. Includes self-edit exclusion, manifest-rescan trigger, 5KB truncation, and SIGINT handling.
+- **SessionStart hook** real implementation. Bootstraps `.tailtest/config.yaml` via defaults, runs the shallow scanner, writes `.tailtest/profile.json`, handles empty projects and scanner failures gracefully, resets the auto-offer session debounce cache for each new session.
+- **Delta coverage tracking** (Python path). Diff parser + `coverage.py` JSON parser + computation module. PythonRunner wraps pytest with `coverage run -m pytest` when asked, intersects the coverage result with the edited lines, populates `delta_coverage_pct` and `uncovered_new_lines` in the `FindingBatch`. Reporter renders a delta-coverage line, hook surfaces it to Claude's next turn with up to 3 specific uncovered file:line pointers.
+- **Auto-offer test generation** in the PostToolUse hook. AST-based pure-function detection (excludes functions with I/O markers, global state, no return, class methods, nested defs). Has-test heuristic walks `tests/` and colocated `src/<pkg>/tests/`. Per-session debounce via `.tailtest/session-state.json`. 3-suggestion cap per hook run. Gated by `notifications.auto_offer_generation` config flag.
+- **Six namespaced skills** under `skills/<name>/SKILL.md`: `/tailtest:status`, `/tailtest:depth`, `/tailtest:scan`, `/tailtest:gen`, `/tailtest:report`, `/tailtest:setup`. Each skill is a markdown file with YAML frontmatter (description, optional argument-hint) and a prose playbook body.
+- **Session state module** (`core/session_state.py`) with atomic write via `.tmp` file + rename, session-id-based cache invalidation, JSON serialization.
+- **Pure-function heuristics module** (`core/generator/heuristics.py`) for the auto-offer path.
+- **Frontmatter validator test** (`tests/test_skills_frontmatter.py`) that asserts every skill has a valid description, argument-taking skills declare argument-hint, no skill has a name field, and every body references at least one tailtest concept.
+
+### Fixed
+- **PythonRunner venv mismatch**: `_resolve_pytest_path()` now prefers the target project's `.venv/bin/pytest` over tailtest's own venv. Previously, running tailtest from its own venv against another project used the wrong pytest and every test collection-failed on missing deps.
+- **JUnit collection error text preservation**: `_parse_junit` now combines the `message` attribute and the `text` content so the full `ModuleNotFoundError` traceback survives. Previously the generic "collection failure" banner clobbered the body.
+- **Positional path argument** added to `tailtest scan`, `tailtest run`, `tailtest doctor` commands. Previously only `--project-root` was supported; the Level 1 instructions referenced positional path syntax that did not exist.
+- **JSRunner false-positive discovery** (Checkpoint G fix). Previously, a `tests/` directory with `*.test.ts` files was enough for `discover()` to return True, falling back to vitest as the default. Fails on projects that use `node --test` (Feynman) because vitest is not installed. Now `discover()` requires an explicit framework signal (config file or package.json devDependency).
+
+### Changed
+- CLI commands (`run`, `scan`, `doctor`) all accept an optional positional PATH argument in addition to `--project-root`.
+- PostToolUse hook split into library (`src/tailtest/hook/post_tool_use.py`) + shim (`hooks/post_tool_use.py`). Library is async, testable without subprocess spawning. Shim handles SIGINT, stdin read, stdout write, exit code.
+
+### Infrastructure
+- First public push of the v2 scaffold to `github.com/avansaber/tailtest` (replacing v1 via a planned history flatten).
+- Cleanup of pre-v2 artifacts from the public remote: deleted the stale `v2` branch (which ironically pointed at v1 content) plus the `v0.3.0` and `v0.3.1` tags and releases.
+- Branch protection rules updated to match v2 CI context names (`Python 3.11 on ubuntu-latest` etc.) instead of the v1 inherited names.
+- 363 pytest tests passing (up from 0 in Phase 0). Ruff clean, pyright standard 0/0/0, gitleaks clean, trufflehog clean.
+
+### Known limitations
+- **Feynman is not yet a dogfood target.** Feynman uses Node's built-in `node --test` runner, which tailtest does not support. A `NodeTestRunner` is tracked as a follow-up.
+- **TypeScript/JavaScript delta coverage** is deferred. The computation layer is language-agnostic; the vitest/jest coverage parser is not yet wired up.
+- **TypeScript/JavaScript auto-offer test generation** is deferred. The AST heuristic is Python-only via `ast.parse`.
+- **thorough and paranoid depth modes** accept the config setting but the deeper features (LLM-judge assertions, validator subagent, red-team catalog) ship in later phases.
+
 ## [0.1.0-alpha.0] — 2026-04-09
 
 ### Added

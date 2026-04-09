@@ -91,14 +91,36 @@ def test_discover_via_jest_config_file(tmp_path: Path, monkeypatch) -> None:
     assert runner.framework == "jest"
 
 
-def test_discover_via_test_dir_alone(tmp_path: Path, monkeypatch) -> None:
-    """A tests/ dir with a *.test.ts file is sufficient, defaults to vitest."""
+def test_discover_returns_false_for_test_dir_without_framework_signal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A `tests/` dir alone is NOT a framework signal (Checkpoint G fix).
+
+    Regression test for the Feynman dogfood finding: Feynman has
+    `tests/*.test.ts` files but uses Node's built-in `node --test`
+    runner, not vitest or jest. Earlier JSRunner would return True
+    here and fall back to `vitest` as the default, then crash on run
+    because vitest is not installed. The fix tightens discover() to
+    require an explicit framework signal (config file or
+    package.json devDependency).
+    """
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "example.test.ts").write_text("// test placeholder")
+    # package.json with NO vitest or jest entry, mimicking Feynman's
+    # node --test setup.
+    (tmp_path / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "x",
+                "scripts": {"test": "node --import tsx --test tests/*.test.ts"},
+                "devDependencies": {"tsx": "^4.21.0", "typescript": "^5.9.3"},
+            }
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(shutil, "which", lambda _name: "/fake/npx")
     runner = JSRunner(tmp_path)
-    assert runner.discover() is True
-    assert runner.framework == "vitest"
+    assert runner.discover() is False
 
 
 def test_discover_raises_when_npx_missing(tmp_path: Path, monkeypatch) -> None:

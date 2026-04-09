@@ -119,9 +119,21 @@ class JSRunner(BaseRunner):
     def discover(self) -> bool:
         has_vitest = self._has_vitest()
         has_jest = self._has_jest()
-        has_test_dir = self._has_test_dir()
 
-        if not (has_vitest or has_jest or has_test_dir):
+        # Phase 1 Checkpoint G dogfood finding: the earlier version
+        # ALSO returned True when only a `tests/` directory with
+        # test files existed, falling back to vitest as the default.
+        # That produced a false positive on Feynman, which has
+        # `tests/*.test.ts` files but uses Node's built-in
+        # `node --test` runner (not vitest or jest). JSRunner would
+        # then shell out to `npx vitest run` and crash.
+        #
+        # The fix: require an explicit framework signal, either a
+        # config file on disk or a package.json devDependencies
+        # entry. A bare tests dir is not enough. Projects using
+        # node --test, ava, mocha, or tape will need their own
+        # runner in a follow-up (tracked in the Phase 1 retro).
+        if not (has_vitest or has_jest):
             return False
 
         # When both are present, prefer vitest (modern default for new

@@ -5,5 +5,5 @@ Pre-alpha. Public API is not yet stable.
 See https://tailtest.com for the shipped version.
 """
 
-__version__ = "0.1.0a0"
+__version__ = "0.1.0a1"
 __all__ = ["__version__"]
