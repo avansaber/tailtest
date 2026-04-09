@@ -46,6 +46,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -216,6 +217,13 @@ class SemgrepRunner:
 
         claude_hint = _build_claude_hint(hit)
 
+        # Extract the first CWE-NNN identifier from the metadata.
+        # Semgrep emits CWE entries like
+        # "CWE-94: Improper Control of Generation of Code ('Code
+        # Injection')". We only keep the canonical CWE-NNN prefix so
+        # reporters and downstream queries can match on a stable key.
+        cwe_id = _first_cwe_id(hit.cwe)
+
         return Finding.create(
             kind=FindingKind.SAST,
             severity=severity,
@@ -226,6 +234,8 @@ class SemgrepRunner:
             run_id=run_id,
             rule_id=f"semgrep::{hit.check_id}",
             doc_link=doc_link,
+            advisory_url=doc_link,
+            cwe_id=cwe_id,
             claude_hint=claude_hint,
         )
 
@@ -386,6 +396,27 @@ def _build_claude_hint(hit: _SemgrepHit) -> str | None:
     if len(hint) > _MESSAGE_MAX_CHARS:
         return hint[: _MESSAGE_MAX_CHARS - 3] + "..."
     return hint
+
+
+_CWE_PATTERN = re.compile(r"CWE-\d+", re.IGNORECASE)
+
+
+def _first_cwe_id(cwe_entries: list[str]) -> str | None:
+    """Extract the first canonical ``CWE-NNN`` identifier from Semgrep metadata.
+
+    Semgrep's CWE field is a list of strings like
+    ``"CWE-94: Improper Control of Generation of Code ('Code
+    Injection')"``. We keep only the leading ``CWE-NNN`` prefix
+    so downstream matching and reporting can rely on a stable key.
+    Returns None when no entry contains a matchable ``CWE-`` token.
+    """
+    for entry in cwe_entries:
+        if not isinstance(entry, str):
+            continue
+        match = _CWE_PATTERN.search(entry)
+        if match:
+            return match.group(0).upper()
+    return None
 
 
 def _summarize(text: str) -> str:

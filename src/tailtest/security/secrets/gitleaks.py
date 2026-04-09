@@ -196,6 +196,10 @@ class GitleaksRunner:
         Kind is always SECRET. Severity is HIGH by default; a
         future revision may escalate to CRITICAL when gitleaks
         marks the finding as "verified" against a live API.
+
+        Every gitleaks hit maps to ``CWE-798`` (Use of Hard-coded
+        Credentials), which is the canonical CWE for every secret
+        leak regardless of the specific rule that caught it.
         """
         file_path = Path(hit.file) if hit.file else Path("<unknown>")
         message = f"{hit.description} (rule: {hit.rule_id})"
@@ -208,6 +212,7 @@ class GitleaksRunner:
             message=_summarize(message),
             run_id=run_id,
             rule_id=f"gitleaks::{hit.rule_id}",
+            cwe_id="CWE-798",
             claude_hint=(
                 "Remove the secret from the file and rotate it immediately "
                 "if it was ever committed, pushed, or shared."

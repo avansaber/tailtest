@@ -17,6 +17,7 @@ from tailtest.core.findings.schema import FindingKind, Severity
 from tailtest.security.sast.semgrep import (
     DEFAULT_RULESET,
     SemgrepRunner,
+    _first_cwe_id,
     _raw_to_hit,
     _semgrep_severity_to_unified,
     _SemgrepHit,
@@ -267,6 +268,33 @@ def test_raw_to_hit_defaults_when_fields_missing() -> None:
     assert hit.references == []
 
 
+# --- _first_cwe_id -----------------------------------------------------
+
+
+def test_first_cwe_id_extracts_canonical_prefix() -> None:
+    """Full Semgrep CWE strings get trimmed down to the CWE-NNN prefix."""
+    cwe = ["CWE-94: Improper Control of Generation of Code ('Code Injection')"]
+    assert _first_cwe_id(cwe) == "CWE-94"
+
+
+def test_first_cwe_id_picks_first_entry() -> None:
+    cwe = ["CWE-89: SQL Injection", "CWE-20: Improper Input Validation"]
+    assert _first_cwe_id(cwe) == "CWE-89"
+
+
+def test_first_cwe_id_returns_none_for_empty() -> None:
+    assert _first_cwe_id([]) is None
+
+
+def test_first_cwe_id_returns_none_for_unparseable() -> None:
+    assert _first_cwe_id(["just a description, no CWE"]) is None
+
+
+def test_first_cwe_id_case_insensitive() -> None:
+    """Semgrep sometimes emits lowercase ``cwe-79`` in legacy rules."""
+    assert _first_cwe_id(["cwe-79: XSS"]) == "CWE-79"
+
+
 # --- SemgrepRunner.is_available ----------------------------------------
 
 
@@ -346,6 +374,11 @@ async def test_scan_parses_single_finding(tmp_path: Path, monkeypatch) -> None:
     assert f.doc_link.startswith("https://")
     assert f.claude_hint is not None
     assert "OWASP" in f.claude_hint
+    # Task 2.4: CWE-NNN is extracted from the metadata.cwe list and
+    # advisory_url mirrors the doc_link so downstream reporters can
+    # use a stable security-field key.
+    assert f.cwe_id == "CWE-94"
+    assert f.advisory_url == f.doc_link
 
 
 @pytest.mark.asyncio

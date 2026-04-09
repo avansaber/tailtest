@@ -247,6 +247,9 @@ async def test_scan_parses_single_finding(tmp_path: Path, monkeypatch) -> None:
     assert f.rule_id == "gitleaks::aws-access-token"
     assert f.claude_hint is not None
     assert "rotate" in f.claude_hint.lower()
+    # Task 2.4: every gitleaks hit carries the CWE-798 (Use of
+    # Hard-coded Credentials) identifier.
+    assert f.cwe_id == "CWE-798"
 
 
 @pytest.mark.asyncio
