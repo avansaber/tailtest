@@ -1,0 +1,88 @@
+# tailtest public repo — .gitignore
+#
+# This repo ships to github.com/avansaber/tailtest.
+# Nothing confidential, nothing heavy, nothing generated.
+
+# -------- Python --------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+.Python
+build/
+develop-eggs/
+downloads/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+pip-wheel-metadata/
+MANIFEST
+
+# -------- Virtualenvs --------
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# -------- Tool caches --------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.tox/
+.nox/
+
+# -------- Coverage --------
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# -------- Node / JS / TS --------
+node_modules/
+dist/
+build/
+.cache/
+.parcel-cache/
+*.tsbuildinfo
+.next/
+.nuxt/
+.svelte-kit/
+
+# -------- tailtest user state (when tailtest is running against ITSELF) --------
+.tailtest/
+
+# -------- Editors + OS --------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# -------- Env files --------
+.env
+.env.*
+!.env.example
+
+# -------- Logs --------
+*.log
+logs/
+
+# -------- Build output --------
+dist/
+target/
+out/

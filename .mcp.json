@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tailtest": {
+      "command": "tailtest",
+      "args": ["mcp-serve"]
+    }
+  }
+}

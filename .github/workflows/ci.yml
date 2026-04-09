@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package + dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Lint with ruff
+        run: ruff check src tests
+
+      - name: Format check with ruff
+        run: ruff format --check src tests
+
+      - name: Type check with pyright
+        run: pyright src tests
+
+      - name: Run tests
+        run: pytest -v
+
+      - name: Verify package imports cleanly
+        run: python -c "import tailtest; print('tailtest', tailtest.__version__)"
+
+      - name: Verify CLI entry point
+        run: tailtest version
+
+      - name: Validate plugin manifest JSON
+        run: |
+          python -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+          python -c "import json; json.load(open('.mcp.json'))"
+          python -c "import json; json.load(open('hooks/hooks.json'))"

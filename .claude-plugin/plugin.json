@@ -1,0 +1,11 @@
+{
+  "name": "tailtest",
+  "description": "Runs tests and security checks on every Claude edit. Never blocks, never lies.",
+  "version": "0.1.0-alpha.0",
+  "author": {
+    "name": "AvanSaber Inc"
+  },
+  "homepage": "https://tailtest.com",
+  "repository": "https://github.com/avansaber/tailtest",
+  "license": "Apache-2.0"
+}
