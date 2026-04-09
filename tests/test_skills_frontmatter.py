@@ -30,6 +30,8 @@ EXPECTED_SKILLS = {
     "setup",
     # Phase 2 Task 2.7 added the debt review skill.
     "debt",
+    # Phase 2 Task 2.8 added the security posture skill.
+    "security",
 }
 
 # Skills that take a positional argument via $ARGUMENTS and therefore

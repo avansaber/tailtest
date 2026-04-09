@@ -47,5 +47,7 @@ next: `tailtest run` to re-run or `/tailtest:report` for detail
 
 - `/tailtest:scan` to re-scan the project profile
 - `/tailtest:report` to see the full last-run report
+- `/tailtest:security` for security posture and new-vs-baselined counts
+- `/tailtest:debt` to review all baselined findings
 - `/tailtest:depth` to change depth mode
 - `/tailtest:setup` for the opt-in onboarding interview
