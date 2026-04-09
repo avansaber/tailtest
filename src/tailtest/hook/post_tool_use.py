@@ -417,15 +417,25 @@ def _parse_stdin(stdin_text: str) -> dict | None:
 
     The hook must never raise on a malformed payload. A defensive
     return-None keeps the hot loop alive even when Claude Code sends
-    something unexpected.
+    something unexpected. Phase 2 Task 2.10 follow-up: each failure
+    mode now logs an INFO-level diagnostic so a misbehaving hook is
+    distinguishable from a "hook not installed" no-op when the user
+    runs Claude with ``--debug`` or tails the hook log. Empty stdin
+    is intentionally silent because Claude Code regularly invokes
+    hooks with no payload.
     """
     if not stdin_text or not stdin_text.strip():
         return None
     try:
         data = json.loads(stdin_text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        logger.info("post_tool_use: stdin is not valid JSON (%s), skipping turn", exc)
         return None
     if not isinstance(data, dict):
+        logger.info(
+            "post_tool_use: stdin is JSON but not an object (got %s), skipping turn",
+            type(data).__name__,
+        )
         return None
     return data
 

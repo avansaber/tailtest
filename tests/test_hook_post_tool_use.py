@@ -59,6 +59,48 @@ def test_parse_stdin_returns_none_for_non_dict_payload() -> None:
     assert _parse_stdin("[1, 2, 3]") is None
 
 
+def test_parse_stdin_logs_diagnostic_on_malformed_json(caplog) -> None:
+    """Phase 2 Task 2.10 follow-up: malformed JSON must not be silent.
+
+    Level 2 dogfood (other session) flagged that
+    ``_parse_stdin`` previously returned None on malformed JSON
+    with no log line, making "hook crashed parsing input" and
+    "hook not installed" indistinguishable. The fix is to emit
+    one INFO line per failure mode so a user running with
+    ``claude --debug`` can tell which case fired.
+    """
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="tailtest.hook.post_tool_use"):
+        result = _parse_stdin("{not json")
+    assert result is None
+    assert any("not valid JSON" in r.message for r in caplog.records)
+
+
+def test_parse_stdin_logs_diagnostic_on_non_object(caplog) -> None:
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="tailtest.hook.post_tool_use"):
+        result = _parse_stdin("[1, 2, 3]")
+    assert result is None
+    assert any("not an object" in r.message for r in caplog.records)
+
+
+def test_parse_stdin_silent_on_empty_input(caplog) -> None:
+    """Empty stdin must stay silent. Claude Code regularly invokes
+    hooks with no payload as part of normal operation, and a log
+    line on every empty call would flood the user's debug output.
+    """
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="tailtest.hook.post_tool_use"):
+        result = _parse_stdin("")
+    assert result is None
+    assert not any(
+        "not valid JSON" in r.message or "not an object" in r.message for r in caplog.records
+    )
+
+
 # --- File path extraction ----------------------------------------------
 
 
