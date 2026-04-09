@@ -610,7 +610,15 @@ async def test_security_phase_respects_secrets_disabled(tmp_path: Path, monkeypa
     _StubGitleaks.hits = [_make_security_finding(FindingKind.SECRET)]
     _StubSemgrep.hits = [_make_security_finding(FindingKind.SAST)]
 
-    config = Config(security=SecurityConfig(secrets=False, sast=True, sca=True))
+    from tailtest.core.config import SastConfig, ScaConfig
+
+    config = Config(
+        security=SecurityConfig(
+            secrets=False,
+            sast=SastConfig(enabled=True),
+            sca=ScaConfig(enabled=True),
+        )
+    )
     findings = await _run_security_phase(
         root=tmp_path,
         changed_files=[tmp_path / "app.py"],
@@ -626,7 +634,13 @@ async def test_security_phase_respects_secrets_disabled(tmp_path: Path, monkeypa
 
 @pytest.mark.asyncio
 async def test_security_phase_respects_sast_disabled(tmp_path: Path, monkeypatch) -> None:
-    from tailtest.core.config import Config, DepthMode, SecurityConfig
+    from tailtest.core.config import (
+        Config,
+        DepthMode,
+        SastConfig,
+        ScaConfig,
+        SecurityConfig,
+    )
     from tailtest.hook.post_tool_use import _run_security_phase
 
     _reset_security_stubs()
@@ -634,7 +648,13 @@ async def test_security_phase_respects_sast_disabled(tmp_path: Path, monkeypatch
     _StubGitleaks.hits = [_make_security_finding(FindingKind.SECRET)]
     _StubSemgrep.hits = [_make_security_finding(FindingKind.SAST)]
 
-    config = Config(security=SecurityConfig(secrets=True, sast=False, sca=True))
+    config = Config(
+        security=SecurityConfig(
+            secrets=True,
+            sast=SastConfig(enabled=False),
+            sca=ScaConfig(enabled=True),
+        )
+    )
     findings = await _run_security_phase(
         root=tmp_path,
         changed_files=[tmp_path / "app.py"],
@@ -648,7 +668,13 @@ async def test_security_phase_respects_sast_disabled(tmp_path: Path, monkeypatch
 
 @pytest.mark.asyncio
 async def test_security_phase_respects_sca_disabled(tmp_path: Path, monkeypatch) -> None:
-    from tailtest.core.config import Config, DepthMode, SecurityConfig
+    from tailtest.core.config import (
+        Config,
+        DepthMode,
+        SastConfig,
+        ScaConfig,
+        SecurityConfig,
+    )
     from tailtest.hook.post_tool_use import _run_security_phase
 
     _reset_security_stubs()
@@ -658,7 +684,13 @@ async def test_security_phase_respects_sca_disabled(tmp_path: Path, monkeypatch)
     manifest = tmp_path / "pyproject.toml"
     manifest.write_text('[project]\nname = "ex"\nversion = "0.1.0"\n')
 
-    config = Config(security=SecurityConfig(secrets=True, sast=True, sca=False))
+    config = Config(
+        security=SecurityConfig(
+            secrets=True,
+            sast=SastConfig(enabled=True),
+            sca=ScaConfig(enabled=False),
+        )
+    )
     findings = await _run_security_phase(
         root=tmp_path,
         changed_files=[manifest],

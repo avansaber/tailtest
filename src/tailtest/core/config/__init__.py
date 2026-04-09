@@ -2,8 +2,11 @@
 
 Phase 1 ships the minimal config: schema version, depth mode, a runners
 section (auto-detect by default), and a security section (stubs for
-Phase 2). Config is loaded fresh on every PostToolUse hook invocation
-per audit gap #4 so depth changes take effect immediately.
+Phase 2). Phase 2 Task 2.5 flipped security defaults to on and Task
+2.9 extended the SAST and SCA blocks into nested types so users can
+configure rulesets and EPSS toggles. Config is loaded fresh on every
+PostToolUse hook invocation per audit gap #4 so depth and ruleset
+changes take effect immediately.
 """
 
 from tailtest.core.config.loader import ConfigLoader
@@ -12,6 +15,8 @@ from tailtest.core.config.schema import (
     Config,
     DepthMode,
     RunnersConfig,
+    SastConfig,
+    ScaConfig,
     SecurityConfig,
 )
 
@@ -21,5 +26,7 @@ __all__ = [
     "ConfigLoader",
     "DepthMode",
     "RunnersConfig",
+    "SastConfig",
+    "ScaConfig",
     "SecurityConfig",
 ]

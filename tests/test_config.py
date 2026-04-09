@@ -12,6 +12,9 @@ from tailtest.core.config import (
     Config,
     ConfigLoader,
     DepthMode,
+    SastConfig,
+    ScaConfig,
+    SecurityConfig,
 )
 
 
@@ -21,11 +24,14 @@ def test_config_defaults() -> None:
     assert config.depth == DepthMode.STANDARD
     assert config.runners.auto_detect is True
     # Phase 2 Task 2.5: security scanner trio is on by default.
-    # Each scanner gracefully falls back when its binary is
-    # missing, so defaulting to True is safe.
+    # Task 2.9 nested sast and sca into their own config types,
+    # so assert via the .enabled attribute and the new ruleset
+    # / use_epss defaults.
     assert config.security.secrets is True
-    assert config.security.sast is True
-    assert config.security.sca is True
+    assert config.security.sast.enabled is True
+    assert config.security.sast.ruleset == "p/default"
+    assert config.security.sca.enabled is True
+    assert config.security.sca.use_epss is False
     # block_on_verified_secret stays off until verification lands.
     assert config.security.block_on_verified_secret is False
     assert config.notifications.auto_offer_generation is True
@@ -145,3 +151,138 @@ def test_save_then_load_preserves_all_fields(tmp_path: Path) -> None:
     assert restored.interview_completed is True
     assert restored.security.secrets is False
     assert restored.notifications.auto_offer_generation is False
+
+
+# --- Phase 2 Task 2.9: nested SAST + SCA config + legacy coercion ----
+
+
+def test_sast_config_defaults() -> None:
+    sast = SastConfig()
+    assert sast.enabled is True
+    assert sast.ruleset == "p/default"
+    # Truthy iff enabled (backward compat with `if config.security.sast:`).
+    assert bool(sast) is True
+
+
+def test_sast_config_custom_ruleset() -> None:
+    sast = SastConfig(ruleset="p/owasp-top-ten")
+    assert sast.ruleset == "p/owasp-top-ten"
+    assert sast.enabled is True
+
+
+def test_sast_config_disabled_is_falsy() -> None:
+    sast = SastConfig(enabled=False)
+    assert bool(sast) is False
+
+
+def test_sca_config_defaults() -> None:
+    sca = ScaConfig()
+    assert sca.enabled is True
+    assert sca.use_epss is False
+    assert bool(sca) is True
+
+
+def test_sca_config_epss_opt_in() -> None:
+    sca = ScaConfig(use_epss=True)
+    assert sca.use_epss is True
+
+
+def test_security_config_accepts_legacy_sast_bool_true(tmp_path: Path) -> None:
+    """Phase 1 configs with ``sast: true`` must still parse."""
+    legacy = {
+        "schema_version": 1,
+        "depth": "standard",
+        "security": {"sast": True, "sca": False},
+    }
+    config = Config(**legacy)
+    assert config.security.sast.enabled is True
+    assert config.security.sast.ruleset == "p/default"  # default inherited
+    assert config.security.sca.enabled is False
+
+
+def test_security_config_accepts_legacy_sast_bool_false(tmp_path: Path) -> None:
+    legacy = {"schema_version": 1, "security": {"sast": False}}
+    config = Config(**legacy)
+    assert config.security.sast.enabled is False
+    # Even a disabled scanner still carries the default ruleset so
+    # flipping it back on does not require setting ruleset again.
+    assert config.security.sast.ruleset == "p/default"
+
+
+def test_security_config_accepts_nested_sast() -> None:
+    """New configs can use the nested form directly."""
+    new = {
+        "schema_version": 1,
+        "security": {
+            "sast": {"enabled": True, "ruleset": "p/ci"},
+            "sca": {"enabled": True, "use_epss": True},
+        },
+    }
+    config = Config(**new)
+    assert config.security.sast.ruleset == "p/ci"
+    assert config.security.sca.use_epss is True
+
+
+def test_security_config_roundtrip_through_loader(tmp_path: Path) -> None:
+    """Full save → load preserves the nested ruleset and EPSS toggle."""
+    loader = ConfigLoader(tmp_path / ".tailtest")
+    original = Config(
+        security=SecurityConfig(
+            secrets=True,
+            sast=SastConfig(enabled=True, ruleset="p/owasp-top-ten"),
+            sca=ScaConfig(enabled=True, use_epss=True),
+        )
+    )
+    loader.save(original)
+    restored = loader.load()
+    assert restored.security.sast.ruleset == "p/owasp-top-ten"
+    assert restored.security.sca.use_epss is True
+
+
+def test_security_config_legacy_yaml_roundtrips_via_loader(tmp_path: Path) -> None:
+    """A hand-written YAML with the legacy bool form must load correctly."""
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir()
+    # Quote "off" so YAML 1.1 does not parse it as a bool.
+    legacy_yaml = (
+        "schema_version: 1\n"
+        'depth: "standard"\n'
+        "security:\n"
+        "  secrets: true\n"
+        "  sast: true\n"
+        "  sca: false\n"
+    )
+    (tailtest_dir / "config.yaml").write_text(legacy_yaml)
+    loader = ConfigLoader(tailtest_dir)
+    config = loader.load()
+    assert config.security.secrets is True
+    assert config.security.sast.enabled is True
+    assert config.security.sast.ruleset == "p/default"
+    assert config.security.sca.enabled is False
+
+
+def test_security_config_missing_block_uses_defaults(tmp_path: Path) -> None:
+    """Phase 1 configs written without any security block must still load.
+
+    A config like ``{schema_version: 1, depth: standard}`` (no
+    `security` key at all) should parse and inherit every
+    default from SecurityConfig: secrets on, sast nested with
+    enabled+ruleset defaults, sca nested with enabled+use_epss
+    defaults, block_on_verified_secret False.
+    """
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir()
+    (tailtest_dir / "config.yaml").write_text('schema_version: 1\ndepth: "standard"\n')
+    config = ConfigLoader(tailtest_dir).load()
+    assert config.security.secrets is True
+    assert config.security.sast.enabled is True
+    assert config.security.sast.ruleset == "p/default"
+    assert config.security.sca.enabled is True
+    assert config.security.sca.use_epss is False
+    assert config.security.block_on_verified_secret is False
+
+
+def test_security_config_rejects_unknown_nested_field() -> None:
+    """extra='forbid' on SastConfig catches typos."""
+    with pytest.raises(ValidationError):
+        SastConfig(enabled=True, ruleset="p/default", unknown_field=True)  # type: ignore[call-arg]
