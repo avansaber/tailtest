@@ -238,7 +238,9 @@ async def run(
         _persist_report(root, timed_out)
         return HookResult(
             stdout_json=_format_additional_context(
-                timed_out, manifest_rescanned=manifest_rescanned
+                timed_out,
+                manifest_rescanned=manifest_rescanned,
+                auto_offer_suggestions=None,
             ),
             reason="runner timeout",
         )
@@ -255,8 +257,98 @@ async def run(
 
     _persist_report(root, batch)
 
-    stdout_json = _format_additional_context(batch, manifest_rescanned=manifest_rescanned)
+    # Auto-offer test generation (Phase 1 Task 1.5a). Runs after the
+    # test batch is finalized but before the context is formatted so
+    # the offer can append to the same envelope. Gated by the
+    # `notifications.auto_offer_generation` config flag (default on).
+    # Debounced via `.tailtest/session-state.json` so the same symbol
+    # is not re-offered twice in a session.
+    auto_offer_suggestions: list[str] = []
+    if config.notifications.auto_offer_generation:
+        auto_offer_suggestions = _collect_auto_offer_suggestions(
+            root=root,
+            changed_files=changed_files,
+            payload=payload,
+        )
+
+    stdout_json = _format_additional_context(
+        batch,
+        manifest_rescanned=manifest_rescanned,
+        auto_offer_suggestions=auto_offer_suggestions,
+    )
     return HookResult(stdout_json=stdout_json, reason="ok")
+
+
+def _collect_auto_offer_suggestions(
+    *,
+    root: Path,
+    changed_files: list[Path],
+    payload: dict,
+) -> list[str]:
+    """Return pre-formatted auto-offer suggestion lines for the next turn.
+
+    For each changed Python file, identify pure functions that have
+    no matching test, and return "consider running /tailtest:gen X"
+    lines. Honors the session-state debounce so each `(file, symbol)`
+    pair is offered at most once per session. Idempotent writes to
+    session-state.json happen here.
+    """
+    from tailtest.core.generator.heuristics import find_uncovered_functions
+    from tailtest.core.session_state import load_session_state, save_session_state
+
+    # Extract the session id from the payload; fall back to None so
+    # the session state loader treats it as "I don't know, preserve
+    # what's on disk".
+    session_id = None
+    raw_session_id = payload.get("session_id")
+    if isinstance(raw_session_id, str) and raw_session_id:
+        session_id = raw_session_id
+
+    tailtest_dir = root / ".tailtest"
+    state = load_session_state(tailtest_dir, current_session_id=session_id)
+
+    suggestions: list[str] = []
+    changed_something = False
+
+    for changed_file in changed_files:
+        # Only Python files get the heuristic in Phase 1. TS/JS
+        # would need a different parser.
+        if changed_file.suffix.lower() != ".py":
+            continue
+        try:
+            absolute = changed_file.resolve()
+        except OSError:
+            continue
+        candidates = find_uncovered_functions(absolute, root)
+        for candidate in candidates:
+            file_key = str(absolute)
+            if state.has_seen(file_key, candidate.name):
+                continue
+            # Build the human-readable suggestion. Kept short so the
+            # 5 KB truncation budget stays reasonable.
+            try:
+                rel = absolute.relative_to(root)
+                display_path = str(rel)
+            except ValueError:
+                display_path = str(absolute)
+            suggestions.append(
+                f"tailtest: `{candidate.name}` in {display_path}:{candidate.lineno} "
+                f"has no test. Run `/tailtest:gen {display_path}` to generate one."
+            )
+            state.mark_seen(file_key, candidate.name)
+            changed_something = True
+            # Cap at 3 suggestions per hook run so a huge refactor
+            # does not flood the context. Additional candidates wait
+            # for subsequent edits.
+            if len(suggestions) >= 3:
+                break
+        if len(suggestions) >= 3:
+            break
+
+    if changed_something:
+        save_session_state(tailtest_dir, state)
+
+    return suggestions
 
 
 # --- Parsing helpers ---------------------------------------------------
@@ -491,6 +583,7 @@ def _format_additional_context(
     batch: FindingBatch,
     *,
     manifest_rescanned: bool,
+    auto_offer_suggestions: list[str] | None = None,
 ) -> str:
     """Build the hookSpecificOutput JSON payload for Claude's next turn.
 
@@ -501,6 +594,9 @@ def _format_additional_context(
       first-seen order.
     - If more than 5 findings exist, the response truncates and adds
       a footer line pointing at ``.tailtest/reports/latest.json``.
+    - Optional auto-offer test generation suggestions appended as a
+      separate block at the end so the user (and Claude) see the
+      test findings first. Maximum 3 suggestions per run.
     - The full block is capped at 5 KB (audit gap #5).
     """
     top_findings = sorted(
@@ -542,6 +638,14 @@ def _format_additional_context(
     extra = len(batch.findings) - len(top_findings)
     if extra > 0:
         lines.append(f"... {extra} more findings, see .tailtest/reports/latest.json")
+
+    # Auto-offer suggestions go after the findings so test failures
+    # remain the most urgent part of the context. Each suggestion is
+    # already a single compact line from _collect_auto_offer_suggestions.
+    if auto_offer_suggestions:
+        lines.append("")  # blank separator
+        for suggestion in auto_offer_suggestions:
+            lines.append(suggestion)
 
     additional_context = "\n".join(lines)
     additional_context = _truncate(additional_context)
