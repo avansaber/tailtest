@@ -35,6 +35,7 @@ from tailtest.core.runner.base import (
     TestID,
     register_runner,
 )
+from tailtest.core.scan.test_finder import find_test_directories
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +118,11 @@ class PythonRunner(BaseRunner):
         return False
 
     def _has_tests_dir(self) -> bool:
-        tests_dir = self.project_root / "tests"
-        if not tests_dir.is_dir():
-            return False
-        return any(tests_dir.rglob("test_*.py"))
+        test_dirs = find_test_directories(self.project_root)
+        if test_dirs:
+            return True
+        # Fallback: check if there are any test_*.py files at the root level
+        return any(self.project_root.glob("test_*.py"))
 
     async def _testmon_available(self) -> bool:
         """Check if pytest-testmon is installed in the target environment."""
