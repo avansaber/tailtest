@@ -1,53 +1,103 @@
 # tailtest
 
-> **Pre-alpha scaffolding.** The product does not work yet.
+> The test + security validator that lives inside Claude Code. Never blocks, never lies.
 
-> *"tailtest grows with your project, from smoke tests to red team. Runs inside Claude Code, never blocks, never lies."*
+tailtest watches every edit your AI agent makes inside Claude Code, runs the tests that matter, scans for security issues that matter, and feeds findings back into Claude's next turn so the agent can fix them in the same session. The hot loop never blocks your work.
 
-tailtest is the test + security validator that lives inside Claude Code. It watches every edit the AI agent makes, runs the tests that matter, catches the security issues that matter, and reports findings back into Claude's next turn so the agent can self-correct — without ever blocking or interrupting your work.
+**Current release:** [`v0.1.0-alpha.2`](https://github.com/avansaber/tailtest/releases/tag/v0.1.0-alpha.2) — Phase 2 (security layer) shipped. The brand promise is real: tests + secrets + SAST + SCA flow through the same Claude Code hot loop today. See [CHANGELOG.md](CHANGELOG.md) for the full release notes.
 
-This repository holds the Claude Code plugin, the MCP server, the Python engine, and the CLI. It is currently in **Phase 0** (foundation scaffolding). Nothing is functional yet.
+## Quickstart (5 minutes)
 
-## Status
+```bash
+# 1. Install the plugin from the GitHub marketplace
+claude plugin marketplace add avansaber/tailtest
+claude plugin install tailtest@avansaber/tailtest
 
-**Version:** `0.1.0-alpha.0` (pre-alpha; nothing works yet)
-**Phase:** 0 — Foundation
-**First functional release target:** `0.1.0-alpha.1` (end of Phase 1 — MVP hot loop)
-**Public release target:** `0.1.0` (end of Phase 7 — launch)
+# 2. Restart your Claude Code session
+# (the skill registry doesn't hot-load, so a restart is mandatory)
 
-If you are reading this because you want to try tailtest: come back after `0.1.0`. This README exists so the repo scaffolding has a home, not because anything is usable yet.
+# 3. Open a project and let Claude edit a Python or JS/TS file
+# tailtest's hot loop fires automatically on every Edit/Write
+```
 
-## What tailtest will do (when it ships)
+After the first edit, look for `tailtest: N/N tests passed · M.Ms` in Claude's next-turn context. That is the hot loop talking to Claude. The full report lands at `.tailtest/reports/latest.html` and `.tailtest/reports/latest.json`.
 
-- **Run your tests automatically** on every Claude Code edit, using your native test runner (pytest, jest, vitest, cargo test, etc.)
-- **Generate starter tests** for code Claude just wrote if none exist — in your project's native test framework, never committed automatically
-- **Scan for security issues** on the same edit: hardcoded secrets, SAST findings, vulnerable dependencies
-- **Feed findings back into Claude's next turn** as structured output, so Claude can fix them in the same session without you having to prompt
-- **Grow with your project**: start at `quick` depth for a 50-line script, graduate to `paranoid` depth for a production SaaS, with the user controlling every escalation
-- **Never block your work.** tailtest reports; you decide
+## What tailtest does today (alpha.2)
 
-## Installation
+- **Runs your tests on every edit**, using the project's native runner (pytest for Python; vitest or jest for JS/TS) with native test impact analysis so only the affected tests run.
+- **Scans for secrets** via gitleaks on every changed file. CWE-798 (hardcoded credentials) tagged automatically.
+- **Scans for SAST issues** via Semgrep across the changed files using the curated `p/default` ruleset. Configurable per project.
+- **Scans dependencies** for known vulnerabilities via the OSV.dev API on every manifest edit (`pyproject.toml`, `package.json`). Hydrated severity, CWE IDs, fixed-version hints, and alias dedup so you see each advisory once.
+- **Computes delta coverage** on the lines your edit touched (Python). The next-turn context calls out exactly which new lines are uncovered.
+- **Suggests test generation** for pure functions you just added that have no test, so you can run `/tailtest:gen <file>` and let Claude write a starter test for you.
+- **Filters known issues via a baseline** at `.tailtest/baseline.yaml`. Existing debt stays silent; only NEW issues surface.
+- **Renders a self-contained HTML report** at `.tailtest/reports/latest.html` after every run. No JavaScript, no CDN, opens offline.
+- **Never blocks your work.** tailtest reports; you decide.
 
-> Once `0.1.0` ships, installation will be:
->
-> ```
-> claude plugin marketplace add github:avansaber/tailtest
-> claude plugin install tailtest@avansaber
-> ```
->
-> or, for standalone CLI / MCP server use:
->
-> ```
-> pip install tailtester
-> ```
+## Slash commands
 
-Neither works today. The PyPI package name is `tailtester` (the importable Python package is `tailtest`; the PyPI name is a historical squat that stuck).
+After install, Claude Code knows the following user-invocable skills:
 
-## Distribution channels (planned)
+| Command | What it does |
+|---|---|
+| `/tailtest:status` | Compact one-screen status: depth, runner, last-run summary, delta coverage, next action |
+| `/tailtest:report` | Full detail of the last run; opens the path to `latest.html` so you can read it in a browser |
+| `/tailtest:security` | Current security posture: which scanners are on, ruleset, new vs baselined finding counts |
+| `/tailtest:debt` | Review the accepted-debt baseline (`.tailtest/baseline.yaml`) |
+| `/tailtest:scan` | Re-scan the project profile from scratch |
+| `/tailtest:gen` | Generate a starter test for an uncovered function |
+| `/tailtest:depth` | Change the hot loop depth (`off`/`quick`/`standard`/`thorough`/`paranoid`) |
+| `/tailtest:setup` | Onboarding interview that writes `.tailtest/config.yaml` |
 
-- **Claude Code plugin** — `claude plugin install tailtest@avansaber` — full experience (hooks + skills + subagents + MCP + dashboard)
-- **Standalone MCP server** — `pip install tailtester && tailtest mcp-serve` — MCP tools only, for Cursor / Windsurf / Codex / any MCP-aware IDE
-- **Standalone CLI** — `tailtest run`, `tailtest scan`, `tailtest doctor` — for CI pipelines, Vim/Emacs users, raw terminal use
+## Configuration
+
+Optional. tailtest works out of the box with sensible defaults. To customize, drop a `.tailtest/config.yaml` in your project root:
+
+```yaml
+schema_version: 1
+depth: standard          # off | quick | standard | thorough | paranoid
+
+security:
+  secrets: true          # gitleaks
+  sast:
+    enabled: true
+    ruleset: p/default   # any Semgrep ruleset id, including p/owasp-top-ten or p/ci
+  sca:
+    enabled: true
+    use_epss: false      # opt-in to EPSS scoring (off until EPSS.io integration ships)
+  block_on_verified_secret: false
+
+notifications:
+  auto_offer_generation: true   # offer /tailtest:gen suggestions in the hot loop
+```
+
+Phase 1 configs (with `sast: true/false` as plain bools) keep parsing — the loader migrates them to the nested form transparently.
+
+## Distribution channels
+
+| Channel | When to use it |
+|---|---|
+| **Claude Code plugin** (`claude plugin install tailtest@avansaber/tailtest`) | Full experience: hot loop hooks, skills, MCP, on-disk reports. The recommended path. |
+| **Standalone CLI** (`pip install tailtester`) | CI pipelines, raw terminal use, or any workflow that doesn't run inside Claude Code. The PyPI package name is `tailtester`; the importable Python package is `tailtest`. |
+| **MCP server** (`tailtest mcp-serve`) | Cursor, Windsurf, Codex, or any MCP-aware IDE. Phase 4 will harden this path. |
+
+## Install notes
+
+- **Restart Claude Code after installing or upgrading the plugin.** The skill registry and hook registry are frozen at session start; new plugins aren't picked up mid-session.
+- **macOS + Homebrew Python users:** the PEP 668 system-Python protection means `pip install tailtester` needs `--break-system-packages` or (better) install via `pipx install tailtester` to keep tailtest in its own venv.
+- **Upgrading from v1 (`tailtester` 0.2.x)?** Uninstall the v1 package first (`pip uninstall tailtester`). The v1 and v2 packages share the `tailtest.hook` import path; without the uninstall step, v1 shadows v2.
+
+## What tailtest does NOT do (yet)
+
+Honest expectations for alpha.2:
+
+- No live web dashboard. The HTML report is static, on-disk. Phase 4 ships the live server.
+- No validator subagent that critiques Claude's code. Phase 5.
+- No AI-agent red team. Phase 6.
+- No Rust runner. Phase 4.5. Cargo support is on the roadmap.
+- No multi-language SCA beyond Python + JS. Go / Rust / Java come later.
+- No EPSS / KEV / NVD severity enrichment for SCA findings. Phase 6 polish.
+- No SCA discovery for projects without a `pyproject.toml` or `package.json`. Phase 3 design question; we know about it.
 
 ## Repository layout
 
@@ -55,26 +105,20 @@ Neither works today. The PyPI package name is `tailtester` (the importable Pytho
 tailtest/
 ├── .claude-plugin/plugin.json   Claude Code plugin manifest
 ├── .mcp.json                    MCP server wiring
-├── hooks/                       PostToolUse / SessionStart / Stop hook scripts
+├── hooks/                       PostToolUse / SessionStart hook shims
 ├── skills/                      User-invocable slash commands
-├── agents/                      Subagent definitions (Phase 5+)
 ├── src/tailtest/                Python package source
-├── tests/                       Unit + integration + e2e tests
-├── docs/                        User-facing documentation (Phase 7)
-├── examples/                    Example projects (Phase 7)
-├── data/                        Static data (red-team attack catalog, etc.)
-├── .github/workflows/           CI
+├── tests/                       Pytest suite (608 tests at alpha.2)
 ├── pyproject.toml
 ├── README.md                    This file
 ├── LICENSE                      Apache 2.0
 ├── CHANGELOG.md
-├── CONTRIBUTING.md
 └── SECURITY.md
 ```
 
 ## Contributing
 
-The project is in foundation phase and not yet accepting external contributions. `CONTRIBUTING.md` will be updated when we're ready.
+The project is in active development through Phase 7 (launch). The public release target is `v0.1.0`. Until then, the issue tracker on [github.com/avansaber/tailtest](https://github.com/avansaber/tailtest) is open for bug reports and feature requests. PRs are reviewed but the bar for accepting external code is high while the architecture is still moving.
 
 ## License
 
@@ -82,4 +126,4 @@ The project is in foundation phase and not yet accepting external contributions.
 
 ## Security
 
-See [`SECURITY.md`](SECURITY.md) for how to report a vulnerability. tailtest itself practices what it preaches — every release passes a pre-public repo hygiene audit (secret scan, PII scan, license audit, manual review) before it ships.
+See [`SECURITY.md`](SECURITY.md) for how to report a vulnerability. tailtest practices what it preaches: every release passes a hygiene audit (gitleaks, trufflehog, manual review) before it ships, and the security layer dogfoods itself by scanning the public source tree on every commit.
