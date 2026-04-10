@@ -14,10 +14,13 @@ from tailtest.core.config.schema import (
     CONFIG_SCHEMA_VERSION,
     Config,
     DepthMode,
+    NexTestPreference,
     RunnersConfig,
+    RustRunnerConfig,
     SastConfig,
     ScaConfig,
     SecurityConfig,
+    WorkspaceMode,
 )
 
 __all__ = [
@@ -25,8 +28,11 @@ __all__ = [
     "Config",
     "ConfigLoader",
     "DepthMode",
+    "NexTestPreference",
     "RunnersConfig",
+    "RustRunnerConfig",
     "SastConfig",
     "ScaConfig",
     "SecurityConfig",
+    "WorkspaceMode",
 ]

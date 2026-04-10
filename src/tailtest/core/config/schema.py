@@ -35,17 +35,68 @@ class DepthMode(StrEnum):
     PARANOID = "paranoid"
 
 
+class NexTestPreference(StrEnum):
+    """Controls whether tailtest prefers ``cargo nextest`` over ``cargo test``.
+
+    - ``auto``: use nextest if the ``cargo-nextest`` binary is on PATH,
+      otherwise fall back to ``cargo test``. This is the default and
+      requires no user action.
+    - ``always``: require nextest; if not installed, emit a warning but
+      still run ``cargo test`` as a fallback (fail-safe, not fail-hard).
+    - ``never``: always use ``cargo test`` even when nextest is available.
+    """
+
+    AUTO = "auto"
+    ALWAYS = "always"
+    NEVER = "never"
+
+
+class WorkspaceMode(StrEnum):
+    """Controls how tailtest handles Cargo workspace layouts.
+
+    - ``auto``: detect from ``Cargo.toml``; use workspace mode if a
+      ``[workspace]`` table is present, single-crate mode otherwise.
+    - ``single``: force single-crate mode (run ``cargo test`` without
+      ``--package``). Useful for simple projects or when workspace
+      detection produces false positives.
+    - ``workspace``: force workspace mode (run per-crate via
+      ``--package <name>``). Useful when Cargo.toml has a ``[workspace]``
+      table but the user wants explicit per-crate scoping.
+    """
+
+    AUTO = "auto"
+    SINGLE = "single"
+    WORKSPACE = "workspace"
+
+
+class RustRunnerConfig(BaseModel):
+    """Rust-specific runner options (Phase 4.5 Task 4.5.6).
+
+    Auto-populated with sensible defaults when the project scanner
+    detects a Rust project (``primary_language: rust``). Users can
+    override any field in ``.tailtest/config.yaml`` under
+    ``runners.rust``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    prefer_nextest: NexTestPreference = NexTestPreference.AUTO
+    workspace_mode: WorkspaceMode = WorkspaceMode.AUTO
+    run_doc_tests: bool = True
+
+
 class RunnersConfig(BaseModel):
     """Per-language runner configuration.
 
-    Phase 1 supports `auto` (the default) — the scanner decides which
-    runners apply based on what it finds. Explicit runner config lands
-    in Phase 2 via the custom-runner adapter (ADR 0011).
+    Phase 1 supports ``auto_detect`` (the default) -- the scanner decides
+    which runners apply based on what it finds. Phase 4.5 adds the
+    ``rust`` sub-config for Cargo-specific options.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     auto_detect: bool = True
+    rust: RustRunnerConfig = Field(default_factory=RustRunnerConfig)
 
 
 class SastConfig(BaseModel):
