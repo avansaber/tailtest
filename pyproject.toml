@@ -39,6 +39,8 @@ dependencies = [
     "pydantic>=2.5",
     "httpx>=0.27",
     "pyyaml>=6.0",
+    "aiohttp>=3.13.4",
+    "watchfiles>=0.21",
 ]
 
 [project.optional-dependencies]
