@@ -12,6 +12,7 @@ from __future__ import annotations
 import click
 
 from tailtest import __version__
+from tailtest.cli.dashboard import dashboard
 from tailtest.cli.doctor import doctor_cmd
 from tailtest.cli.run import run_cmd
 from tailtest.cli.scan import scan_cmd
@@ -52,6 +53,9 @@ def mcp_serve_cmd() -> None:
 main.add_command(run_cmd)
 main.add_command(doctor_cmd)
 main.add_command(scan_cmd)
+
+# Register the Phase 4 dashboard command
+main.add_command(dashboard)
 
 
 if __name__ == "__main__":
