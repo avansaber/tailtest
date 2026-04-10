@@ -75,9 +75,10 @@ def test_profile_roundtrip_json() -> None:
     assert restored == profile
 
 
-def test_profile_extra_fields_rejected() -> None:
-    with pytest.raises(ValidationError):
-        ProjectProfile(root=Path("/x"), unknown_field=True)  # type: ignore[call-arg]
+def test_profile_extra_fields_ignored() -> None:
+    """Extra fields are silently ignored -- allows profile.json to evolve without breaking loaders."""
+    profile = ProjectProfile(root=Path("/x"), unknown_field=True)  # type: ignore[call-arg]
+    assert profile.root == Path("/x")
 
 
 def test_directory_classification_defaults() -> None:

@@ -134,7 +134,7 @@ class ProjectProfile(BaseModel):
     or `ProjectScanner.scan_deep()` (Phase 3, adds `llm_summary`).
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     # Schema version + status
     schema_version: int = Field(default=SCAN_SCHEMA_VERSION)
