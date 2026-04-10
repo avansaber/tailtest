@@ -172,3 +172,36 @@ async def test_new_event_lines_broadcast_to_ws_clients(tmp_path: Path) -> None:
     msg = json.loads(received[0])
     assert msg["kind"] == "event"
     assert msg["payload"]["kind"] == "run"
+
+
+# ---------------------------------------------------------------------------
+# Static file serving (Phase 4 Tasks 4.4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_index_serves_html(tmp_path: Path) -> None:
+    """GET / returns 200 with Content-Type text/html and an <html element."""
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir()
+
+    server = DashboardServer(tailtest_dir)
+    port = find_free_port(19777)
+    await server.start(host="127.0.0.1", port=port)
+
+    try:
+        import aiohttp
+
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
+                f"http://127.0.0.1:{port}/",
+                headers={"Host": f"127.0.0.1:{port}"},
+            ) as resp,
+        ):
+            assert resp.status == 200
+            assert "text/html" in resp.content_type
+            body = await resp.text()
+            assert "<html" in body
+    finally:
+        await server.stop()
