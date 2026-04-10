@@ -17,7 +17,12 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tailtest.core.recommendations import DismissalStore, Recommendation, RecommendationKind, RecommendationPriority
+from tailtest.core.recommendations import (
+    DismissalStore,
+    Recommendation,
+    RecommendationKind,
+    RecommendationPriority,
+)
 from tailtest.core.scan import detectors
 from tailtest.core.scan.profile import (
     ProjectProfile,
@@ -391,16 +396,13 @@ class ProjectScanner:
         return {
             "summary": result.summary,
             "concerns": result.concerns,
-            "recommendations": [
-                r.model_dump(mode="json")
-                for r in result.recommendations
-            ],
+            "recommendations": [r.model_dump(mode="json") for r in result.recommendations],
             "content_hash": result.content_hash,
         }
 
     def _dict_to_result(self, data: dict, *, cached: bool = False) -> DeepScanResult:
         recommendations: list[Recommendation] = []
-        for r in (data.get("recommendations") or []):
+        for r in data.get("recommendations") or []:
             if not isinstance(r, dict):
                 continue
             try:
@@ -451,12 +453,13 @@ class ProjectScanner:
             )
         except FileNotFoundError:
             logger.warning(
-                "scan_deep: claude CLI not found. "
-                "Ensure you are running inside Claude Code."
+                "scan_deep: claude CLI not found. Ensure you are running inside Claude Code."
             )
             return None
         except TimeoutError:
-            logger.warning("scan_deep: claude CLI call timed out after %ds", _DEEP_SCAN_TIMEOUT_SECS)
+            logger.warning(
+                "scan_deep: claude CLI call timed out after %ds", _DEEP_SCAN_TIMEOUT_SECS
+            )
             return None
         except OSError as exc:
             logger.warning("scan_deep: failed to run claude CLI: %s", exc)
@@ -533,9 +536,7 @@ class ProjectScanner:
                 title = rec.title.replace("|", "\\|")
                 why = rec.why.replace("|", "\\|")
                 next_step = rec.next_step.replace("|", "\\|")
-                lines.append(
-                    f"| {rec.priority} | {title} | {why} | {next_step} |"
-                )
+                lines.append(f"| {rec.priority} | {title} | {why} | {next_step} |")
             lines.append("")
 
         cached_note = " (from cache)" if result.cached else ""

@@ -15,19 +15,18 @@ deterministic -- no filesystem scanning, no real project needed.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tailtest.hook.session_start import run as session_start_run
 from tailtest.core.recommendations.schema import (
     Recommendation,
     RecommendationKind,
     RecommendationPriority,
 )
-
+from tailtest.hook.session_start import run as session_start_run
 
 # --- Fixture helpers -------------------------------------------------------
 
@@ -44,7 +43,7 @@ def _make_rec(priority: RecommendationPriority, *, dismissed: bool = False) -> R
     )
     if dismissed:
         # Set dismissed_until to a future time so is_dismissed returns True.
-        future = datetime.now(tz=timezone.utc) + timedelta(days=7)
+        future = datetime.now(tz=UTC) + timedelta(days=7)
         rec = rec.model_copy(update={"dismissed_until": future})
     return rec
 
@@ -53,9 +52,7 @@ def _make_python_project(tmp_path: Path) -> None:
     """Write minimal Python project files so the scan does not produce an empty profile."""
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "app.py").write_text("def main(): pass\n")
-    (tmp_path / "pyproject.toml").write_text(
-        '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n'
-    )
+    (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\ntestpaths = ["tests"]\n')
 
 
 def _get_context(result_stdout_json: str | None) -> str:
@@ -78,9 +75,7 @@ async def test_no_profile_no_rec_line(tmp_path: Path) -> None:
     """
     _make_python_project(tmp_path)
 
-    with patch(
-        "tailtest.hook.session_start.RecommendationEngine"
-    ) as mock_engine_cls:
+    with patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls:
         mock_engine = MagicMock()
         mock_engine.compute.return_value = []
         mock_engine_cls.return_value = mock_engine
@@ -100,11 +95,10 @@ async def test_no_high_priority_recs_no_rec_line(tmp_path: Path) -> None:
     medium_rec = _make_rec(RecommendationPriority.medium)
     low_rec = _make_rec(RecommendationPriority.low)
 
-    with patch(
-        "tailtest.hook.session_start.RecommendationEngine"
-    ) as mock_engine_cls, patch(
-        "tailtest.hook.session_start.DismissalStore"
-    ) as mock_store_cls:
+    with (
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+        patch("tailtest.hook.session_start.DismissalStore") as mock_store_cls,
+    ):
         mock_engine = MagicMock()
         mock_engine.compute.return_value = [medium_rec, low_rec]
         mock_engine_cls.return_value = mock_engine
@@ -126,11 +120,10 @@ async def test_one_high_priority_rec_adds_count_line(tmp_path: Path) -> None:
 
     high_rec = _make_rec(RecommendationPriority.high)
 
-    with patch(
-        "tailtest.hook.session_start.RecommendationEngine"
-    ) as mock_engine_cls, patch(
-        "tailtest.hook.session_start.DismissalStore"
-    ) as mock_store_cls:
+    with (
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+        patch("tailtest.hook.session_start.DismissalStore") as mock_store_cls,
+    ):
         mock_engine = MagicMock()
         mock_engine.compute.return_value = [high_rec]
         mock_engine_cls.return_value = mock_engine
@@ -163,11 +156,10 @@ async def test_two_high_priority_recs_adds_count_line(tmp_path: Path) -> None:
         next_step="Test step 2.",
     )
 
-    with patch(
-        "tailtest.hook.session_start.RecommendationEngine"
-    ) as mock_engine_cls, patch(
-        "tailtest.hook.session_start.DismissalStore"
-    ) as mock_store_cls:
+    with (
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+        patch("tailtest.hook.session_start.DismissalStore") as mock_store_cls,
+    ):
         mock_engine = MagicMock()
         mock_engine.compute.return_value = [high_rec_1, high_rec_2]
         mock_engine_cls.return_value = mock_engine
@@ -190,11 +182,10 @@ async def test_all_high_priority_recs_dismissed_no_rec_line(tmp_path: Path) -> N
 
     dismissed_rec = _make_rec(RecommendationPriority.high, dismissed=True)
 
-    with patch(
-        "tailtest.hook.session_start.RecommendationEngine"
-    ) as mock_engine_cls, patch(
-        "tailtest.hook.session_start.DismissalStore"
-    ) as mock_store_cls:
+    with (
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+        patch("tailtest.hook.session_start.DismissalStore") as mock_store_cls,
+    ):
         mock_engine = MagicMock()
         mock_engine.compute.return_value = [dismissed_rec]
         mock_engine_cls.return_value = mock_engine
@@ -216,11 +207,10 @@ async def test_rec_line_is_single_line(tmp_path: Path) -> None:
 
     high_rec = _make_rec(RecommendationPriority.high)
 
-    with patch(
-        "tailtest.hook.session_start.RecommendationEngine"
-    ) as mock_engine_cls, patch(
-        "tailtest.hook.session_start.DismissalStore"
-    ) as mock_store_cls:
+    with (
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+        patch("tailtest.hook.session_start.DismissalStore") as mock_store_cls,
+    ):
         mock_engine = MagicMock()
         mock_engine.compute.return_value = [high_rec]
         mock_engine_cls.return_value = mock_engine
@@ -235,8 +225,6 @@ async def test_rec_line_is_single_line(tmp_path: Path) -> None:
     # Find the rec line (last line in the context that mentions high-priority)
     lines = context.splitlines()
     rec_lines = [ln for ln in lines if "high-priority" in ln]
-    assert len(rec_lines) == 1, (
-        f"Expected exactly 1 rec line, got {len(rec_lines)}: {rec_lines}"
-    )
+    assert len(rec_lines) == 1, f"Expected exactly 1 rec line, got {len(rec_lines)}: {rec_lines}"
     # The line itself must not have embedded newlines (it is one element)
     assert "\n" not in rec_lines[0]

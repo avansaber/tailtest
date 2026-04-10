@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 from tailtest.core.recommendations import (
     DismissalStore,
@@ -16,7 +14,6 @@ from tailtest.core.recommendations import (
     RecommendationKind,
     RecommendationPriority,
 )
-
 
 # --- Helpers -----------------------------------------------------------------
 
@@ -33,11 +30,11 @@ def _make_rec(title: str = "Add unit tests", applies_to: str = "") -> Recommenda
 
 
 def _future(days: int = 7) -> datetime:
-    return datetime.now(tz=timezone.utc) + timedelta(days=days)
+    return datetime.now(tz=UTC) + timedelta(days=days)
 
 
 def _past(days: int = 1) -> datetime:
-    return datetime.now(tz=timezone.utc) - timedelta(days=days)
+    return datetime.now(tz=UTC) - timedelta(days=days)
 
 
 # --- load() ------------------------------------------------------------------
@@ -213,9 +210,8 @@ def test_atomic_write_original_unchanged_on_write_failure(tmp_path: Path, caplog
     original_content = dismissed_path.read_text(encoding="utf-8")
 
     # Simulate OSError during the tmp write step.
-    with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
-        with caplog.at_level(logging.WARNING):
-            store.dismiss("rec-new", _future(days=10))
+    with patch("pathlib.Path.write_text", side_effect=OSError("disk full")), caplog.at_level(logging.WARNING):
+        store.dismiss("rec-new", _future(days=10))
 
     # The original file must be intact.
     assert dismissed_path.read_text(encoding="utf-8") == original_content

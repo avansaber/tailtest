@@ -44,7 +44,6 @@ logic in ``run``; SIGINT behavior is tested via a subprocess test.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
@@ -464,8 +463,8 @@ def _maybe_surface_rec_line(root: Path) -> str | None:
         if flag_path.exists():
             return None
 
-        from tailtest.core.recommender.engine import RecommendationEngine
         from tailtest.core.recommendations.store import DismissalStore
+        from tailtest.core.recommender.engine import RecommendationEngine
         from tailtest.core.scan import ProjectScanner
 
         scanner = ProjectScanner(root)

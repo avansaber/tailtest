@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
-import pytest
+from datetime import UTC, datetime, timedelta
 
 from tailtest.core.recommendations import (
     Recommendation,
     RecommendationKind,
     RecommendationPriority,
 )
-
 
 # --- Helpers -----------------------------------------------------------------
 
@@ -85,14 +82,14 @@ def test_is_dismissed_false_when_dismissed_until_is_none() -> None:
 
 def test_is_dismissed_false_when_dismissed_until_is_in_the_past() -> None:
     """dismissed_until in the past means the dismissal has expired."""
-    past = datetime.now(tz=timezone.utc) - timedelta(days=1)
+    past = datetime.now(tz=UTC) - timedelta(days=1)
     rec = _make_rec(dismissed_until=past)
     assert rec.is_dismissed is False
 
 
 def test_is_dismissed_true_when_dismissed_until_is_in_the_future() -> None:
     """dismissed_until in the future means the rec is still suppressed."""
-    future = datetime.now(tz=timezone.utc) + timedelta(days=7)
+    future = datetime.now(tz=UTC) + timedelta(days=7)
     rec = _make_rec(dismissed_until=future)
     assert rec.is_dismissed is True
 
@@ -103,7 +100,7 @@ def test_is_dismissed_true_when_dismissed_until_is_in_the_future() -> None:
 def test_dismiss_returns_new_recommendation_with_dismissed_until_set() -> None:
     """dismiss() must return a new object; the original is unchanged (immutable semantics)."""
     rec = _make_rec()
-    future = datetime.now(tz=timezone.utc) + timedelta(days=30)
+    future = datetime.now(tz=UTC) + timedelta(days=30)
     dismissed = rec.dismiss(future)
 
     assert dismissed.dismissed_until == future
@@ -115,7 +112,7 @@ def test_dismiss_returns_new_recommendation_with_dismissed_until_set() -> None:
 def test_dismiss_preserves_all_other_fields() -> None:
     """dismiss() must not mutate kind, title, why, next_step, or source."""
     rec = _make_rec(source="llm", applies_to="src/agent.py")
-    future = datetime.now(tz=timezone.utc) + timedelta(days=1)
+    future = datetime.now(tz=UTC) + timedelta(days=1)
     dismissed = rec.dismiss(future)
 
     assert dismissed.kind == rec.kind
@@ -133,7 +130,7 @@ def test_dismiss_preserves_all_other_fields() -> None:
 
 def test_schema_roundtrip_model_dump_and_validate() -> None:
     """model_dump() -> model_validate() produces an identical Recommendation."""
-    future = datetime.now(tz=timezone.utc) + timedelta(days=5)
+    future = datetime.now(tz=UTC) + timedelta(days=5)
     rec = _make_rec(
         applies_to="src/agent.py",
         source="llm",

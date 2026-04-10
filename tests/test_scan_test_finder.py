@@ -1,12 +1,10 @@
 """Tests for find_test_directories() BFS helper (Phase 3 Task 3.1)."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from tailtest.core.scan.test_finder import find_test_directories
-
 
 # --- Basic discovery ---
 

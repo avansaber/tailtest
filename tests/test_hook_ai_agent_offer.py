@@ -19,7 +19,6 @@ from tailtest.hook.post_tool_use import _format_additional_context, _maybe_build
 from tailtest.hook.session_start import _maybe_build_ai_offer
 from tailtest.hook.session_start import run as session_start_run
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

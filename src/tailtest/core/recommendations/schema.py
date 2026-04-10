@@ -1,10 +1,10 @@
 """Recommendation schema for tailtest opportunity detection."""
+
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -40,14 +40,14 @@ class Recommendation(BaseModel):
         description="Path or module this recommendation targets (empty = whole project).",
     )
     dismissible: bool = True
-    dismissed_until: Optional[datetime] = None
+    dismissed_until: datetime | None = None
     source: str = Field(
         default="rules",
         description="'rules' for deterministic rules, 'llm' for deep-scan recommendations.",
     )
 
     @model_validator(mode="after")
-    def _set_id(self) -> "Recommendation":
+    def _set_id(self) -> Recommendation:
         if not self.id:
             raw = f"{self.kind.value}:{self.title}:{self.applies_to}"
             self.id = hashlib.sha256(raw.encode()).hexdigest()[:16]
@@ -57,8 +57,8 @@ class Recommendation(BaseModel):
     def is_dismissed(self) -> bool:
         if self.dismissed_until is None:
             return False
-        return datetime.now(tz=timezone.utc) < self.dismissed_until
+        return datetime.now(tz=UTC) < self.dismissed_until
 
-    def dismiss(self, until: datetime) -> "Recommendation":
+    def dismiss(self, until: datetime) -> Recommendation:
         """Return a new Recommendation with dismissed_until set."""
         return self.model_copy(update={"dismissed_until": until})

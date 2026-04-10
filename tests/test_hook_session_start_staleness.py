@@ -20,12 +20,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from tailtest.hook.session_start import run as session_start_run
-
 
 # --- Fixture helpers -------------------------------------------------------
 
@@ -41,9 +40,7 @@ def _make_python_project(tmp_path: Path) -> None:
     """Write minimal Python project files so the config bootstrap succeeds."""
     (tmp_path / "src").mkdir(parents=True, exist_ok=True)
     (tmp_path / "src" / "app.py").write_text("def main(): pass\n")
-    (tmp_path / "pyproject.toml").write_text(
-        '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n'
-    )
+    (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\ntestpaths = ["tests"]\n')
 
 
 def _make_mock_profile(*, empty: bool = False) -> MagicMock:
@@ -81,9 +78,10 @@ async def test_cache_fresh_no_rescan(tmp_path: Path) -> None:
     _make_python_project(tmp_path)
     cached_profile = _make_mock_profile()
 
-    with patch("tailtest.hook.session_start.ProjectScanner") as mock_scanner_cls, patch(
-        "tailtest.hook.session_start.RecommendationEngine"
-    ) as mock_engine_cls:
+    with (
+        patch("tailtest.hook.session_start.ProjectScanner") as mock_scanner_cls,
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+    ):
         mock_scanner = MagicMock()
         mock_scanner.load_profile.return_value = cached_profile
         mock_scanner.is_cache_fresh.return_value = True
@@ -112,9 +110,10 @@ async def test_cache_stale_rescan_and_nudge(tmp_path: Path) -> None:
     cached_profile = _make_mock_profile()
     fresh_profile = _make_mock_profile()
 
-    with patch("tailtest.hook.session_start.ProjectScanner") as mock_scanner_cls, patch(
-        "tailtest.hook.session_start.RecommendationEngine"
-    ) as mock_engine_cls:
+    with (
+        patch("tailtest.hook.session_start.ProjectScanner") as mock_scanner_cls,
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+    ):
         mock_scanner = MagicMock()
         mock_scanner.load_profile.return_value = cached_profile
         mock_scanner.is_cache_fresh.return_value = False
@@ -143,9 +142,10 @@ async def test_no_cached_profile_fresh_scan_no_nudge(tmp_path: Path) -> None:
     _make_python_project(tmp_path)
     new_profile = _make_mock_profile()
 
-    with patch("tailtest.hook.session_start.ProjectScanner") as mock_scanner_cls, patch(
-        "tailtest.hook.session_start.RecommendationEngine"
-    ) as mock_engine_cls:
+    with (
+        patch("tailtest.hook.session_start.ProjectScanner") as mock_scanner_cls,
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+    ):
         mock_scanner = MagicMock()
         mock_scanner.load_profile.return_value = None
         mock_scanner.scan_shallow.return_value = new_profile
@@ -172,9 +172,10 @@ async def test_cache_fresh_empty_project_ready_message(tmp_path: Path) -> None:
     # Do NOT create source files -- the project is empty.
     cached_profile = _make_mock_profile(empty=True)
 
-    with patch("tailtest.hook.session_start.ProjectScanner") as mock_scanner_cls, patch(
-        "tailtest.hook.session_start.RecommendationEngine"
-    ) as mock_engine_cls:
+    with (
+        patch("tailtest.hook.session_start.ProjectScanner") as mock_scanner_cls,
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+    ):
         mock_scanner = MagicMock()
         mock_scanner.load_profile.return_value = cached_profile
         mock_scanner.is_cache_fresh.return_value = True

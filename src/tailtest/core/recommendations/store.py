@@ -1,6 +1,8 @@
 """Persistent store for dismissed recommendations."""
+
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from datetime import datetime
@@ -31,10 +33,8 @@ class DismissalStore:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
             result: dict[str, datetime] = {}
             for rec_id, ts_str in raw.items():
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     result[rec_id] = datetime.fromisoformat(ts_str)
-                except (ValueError, TypeError):
-                    pass
             return result
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Could not read dismissal store: %s", exc)

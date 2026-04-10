@@ -1,4 +1,5 @@
 """LLM-judge assertions for AI agent output validation."""
+
 from __future__ import annotations
 
 import asyncio
@@ -58,7 +59,9 @@ class LLMJudge:
             f"Agent response (first 2000 chars): {agent_response[:2000]}\n\n"
             f'Return ONLY a JSON object: {{"verdict": "pass"|"fail"|"uncertain", "reasoning": "one sentence"}}'
         )
-        return await self._judge(prompt, "faithfulness", f"{agent_response[:500]}:{expected_intent}")
+        return await self._judge(
+            prompt, "faithfulness", f"{agent_response[:500]}:{expected_intent}"
+        )
 
     async def check_pii_leakage(
         self,
@@ -108,9 +111,7 @@ class LLMJudge:
 
     # --- Internal ---
 
-    async def _judge(
-        self, prompt: str, assertion_kind: str, cache_input: str
-    ) -> JudgmentResult:
+    async def _judge(self, prompt: str, assertion_kind: str, cache_input: str) -> JudgmentResult:
         """Run the LLM judge with caching. Never raises."""
         cache_key = self._make_cache_key(cache_input, assertion_kind)
         cached = self._load_cache(cache_key)
@@ -146,13 +147,11 @@ class LLMJudge:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=30.0
-            )
-        except FileNotFoundError:
-            raise RuntimeError("claude CLI not found -- LLM judge requires Claude Code")
-        except asyncio.TimeoutError:
-            raise RuntimeError("claude -p timed out after 30s")
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30.0)
+        except FileNotFoundError as exc:
+            raise RuntimeError("claude CLI not found -- LLM judge requires Claude Code") from exc
+        except TimeoutError as exc:
+            raise RuntimeError("claude -p timed out after 30s") from exc
 
         if process.returncode != 0:
             raise RuntimeError(f"claude -p exited {process.returncode}: {stderr.decode()[:200]}")
@@ -218,11 +217,13 @@ class LLMJudge:
         tmp = path.with_suffix(".json.tmp")
         try:
             tmp.write_text(
-                json.dumps({
-                    "verdict": result.verdict,
-                    "reasoning": result.reasoning,
-                    "assertion_kind": result.assertion_kind,
-                }),
+                json.dumps(
+                    {
+                        "verdict": result.verdict,
+                        "reasoning": result.reasoning,
+                        "assertion_kind": result.assertion_kind,
+                    }
+                ),
                 encoding="utf-8",
             )
             tmp.replace(path)

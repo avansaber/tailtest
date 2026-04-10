@@ -355,25 +355,29 @@ def test_is_cache_fresh(tmp_path: Path) -> None:
 # scan_deep() tests (Phase 3 Task 3.1)
 # ---------------------------------------------------------------------------
 
-_VALID_LLM_JSON = json.dumps({
-    "summary": "A demo agent that answers questions using the Anthropic SDK.",
-    "concerns": ["No tests found.", "No CI configuration detected."],
-    "recommendations": [
-        {
-            "kind": "add_test",
-            "priority": "high",
-            "title": "Add unit tests",
-            "why": "The project has no test coverage.",
-            "next_step": "Run `pytest --cov` and add test_*.py files.",
-        }
-    ],
-})
+_VALID_LLM_JSON = json.dumps(
+    {
+        "summary": "A demo agent that answers questions using the Anthropic SDK.",
+        "concerns": ["No tests found.", "No CI configuration detected."],
+        "recommendations": [
+            {
+                "kind": "add_test",
+                "priority": "high",
+                "title": "Add unit tests",
+                "why": "The project has no test coverage.",
+                "next_step": "Run `pytest --cov` and add test_*.py files.",
+            }
+        ],
+    }
+)
 
-_CLAUDE_JSON_ENVELOPE = json.dumps({
-    "type": "result",
-    "result": _VALID_LLM_JSON,
-    "total_cost_usd": 0.001,
-})
+_CLAUDE_JSON_ENVELOPE = json.dumps(
+    {
+        "type": "result",
+        "result": _VALID_LLM_JSON,
+        "total_cost_usd": 0.001,
+    }
+)
 
 
 def _make_mock_subprocess(stdout: bytes, returncode: int = 0):
@@ -412,6 +416,7 @@ async def test_scan_deep_invalid_json_returns_none(tmp_path: Path, caplog) -> No
 
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         import logging
+
         with caplog.at_level(logging.WARNING, logger="tailtest.core.scan.scanner"):
             result = await scanner.scan_deep()
 
@@ -566,6 +571,7 @@ async def test_scan_deep_expired_cache_calls_llm(tmp_path: Path) -> None:
     # Backdate the mtime by more than 24 hours.
     old_mtime = time.time() - (25 * 3600)
     import os
+
     os.utime(cache_file, (old_mtime, old_mtime))
 
     mock_proc = _make_mock_subprocess(stdout=_CLAUDE_JSON_ENVELOPE.encode())
