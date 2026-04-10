@@ -43,8 +43,6 @@ logger = logging.getLogger("tailtest.dashboard")
 
 _PING_INTERVAL = 30  # seconds
 _PORT_RETRY_LIMIT = 10
-_PLACEHOLDER_HTML = "<html><body><h1>tailtest dashboard</h1><p>Starting up...</p></body></html>"
-
 # Hosts accepted by the origin-check middleware.
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
 
@@ -129,6 +127,7 @@ class DashboardServer:
 
         app = aiohttp.web.Application(middlewares=[_localhost_only_middleware])
         app.router.add_get("/", self._handle_index)
+        app.router.add_get("/static/dashboard.js", self._handle_static_js)
         app.router.add_get("/live", self._handle_ws)
 
         # REST API routes (Phase 4 Task 4.3)
@@ -195,11 +194,16 @@ class DashboardServer:
     # ------------------------------------------------------------------
 
     async def _handle_index(self, _request: aiohttp.web.Request) -> aiohttp.web.Response:
-        """GET / -- placeholder HTML page."""
-        return aiohttp.web.Response(
-            text=_PLACEHOLDER_HTML,
-            content_type="text/html",
-        )
+        """GET / -- serve the dashboard SPA."""
+        static_dir = Path(__file__).parent / "static"
+        content = (static_dir / "index.html").read_text(encoding="utf-8")
+        return aiohttp.web.Response(text=content, content_type="text/html")
+
+    async def _handle_static_js(self, _request: aiohttp.web.Request) -> aiohttp.web.Response:
+        """GET /static/dashboard.js -- serve the dashboard JavaScript."""
+        static_dir = Path(__file__).parent / "static"
+        content = (static_dir / "dashboard.js").read_text(encoding="utf-8")
+        return aiohttp.web.Response(text=content, content_type="application/javascript")
 
     async def _handle_ws(self, request: aiohttp.web.Request) -> aiohttp.web.WebSocketResponse:
         """WS /live -- upgrade and register the client."""

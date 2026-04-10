@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tailtest dashboard</title>
+  <style>
+    /* CSS custom properties */
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #2dd4bf;
+      --red: #f85149;
+      --yellow: #e3b341;
+      --green: #3fb950;
+      --blue: #58a6ff;
+      --purple: #d2a8ff;
+      --orange: #fb8f44;
+      --gray: #6e7681;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff;
+        --surface: #f6f8fa;
+        --border: #d0d7de;
+        --text: #1f2328;
+        --text-muted: #636c76;
+        --accent: #0d9488;
+        --red: #cf222e;
+        --yellow: #9a6700;
+        --green: #1a7f37;
+        --blue: #0969da;
+        --purple: #8250df;
+        --orange: #bc4c00;
+        --gray: #57606a;
+      }
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Status bar */
+    #status-bar {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #status-bar .project-name {
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--text);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.2em 0.55em;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .badge-gray    { background: color-mix(in srgb, var(--gray) 20%, transparent); color: var(--gray); }
+    .badge-blue    { background: color-mix(in srgb, var(--blue) 20%, transparent); color: var(--blue); }
+    .badge-green   { background: color-mix(in srgb, var(--green) 20%, transparent); color: var(--green); }
+    .badge-orange  { background: color-mix(in srgb, var(--orange) 20%, transparent); color: var(--orange); }
+    .badge-red     { background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); }
+    .badge-purple  { background: color-mix(in srgb, var(--purple) 20%, transparent); color: var(--purple); }
+    .badge-teal    { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+
+    #status-bar .finding-count {
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    #status-bar .last-event {
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-left: auto;
+    }
+
+    .connection-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--gray);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+
+    .connection-dot.connected {
+      background: var(--green);
+    }
+
+    /* Main three-column layout */
+    #app {
+      display: grid;
+      grid-template-columns: 280px 1fr 280px;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Shared panel styles */
+    aside, section {
+      overflow: hidden;
+      border-right: 1px solid var(--border);
+    }
+
+    #right-panel {
+      border-right: none;
+      border-left: 1px solid var(--border);
+    }
+
+    /* Panel headings */
+    .panel-heading {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .panel-heading .count-badge {
+      background: var(--border);
+      color: var(--text-muted);
+      padding: 0.1em 0.5em;
+      border-radius: 9999px;
+      font-size: 11px;
+    }
+
+    .placeholder {
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 1.5rem 1rem;
+      font-style: italic;
+    }
+
+    /* ---- Event feed ---- */
+    #event-feed {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #event-feed-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .event-item {
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .event-item:hover {
+      background: color-mix(in srgb, var(--surface) 60%, transparent);
+    }
+
+    .event-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .event-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .event-edit        .event-dot { background: var(--blue); }
+    .event-run         .event-dot { background: var(--purple); }
+    .event-finding     .event-dot { background: var(--red); }
+    .event-recommendation .event-dot { background: var(--accent); }
+    .event-session_start  .event-dot { background: var(--green); }
+
+    .event-kind-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: capitalize;
+    }
+
+    .event-time {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
+
+    .event-desc {
+      font-size: 12px;
+      color: var(--text);
+      margin-top: 0.2rem;
+      padding-left: 1.2rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .event-payload {
+      display: none;
+      margin-top: 0.4rem;
+      padding: 0.4rem 0.5rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .event-item.expanded .event-payload {
+      display: block;
+    }
+
+    /* ---- Center panel ---- */
+    #center-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-right: none;
+    }
+
+    #findings-panel {
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px solid var(--border);
+      min-height: 0;
+      flex: 1;
+    }
+
+    #coverage-panel {
+      flex-shrink: 0;
+    }
+
+    /* Filter bar */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 4px;
+      padding: 0.2em 0.6em;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .filter-btn:hover, .filter-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--bg);
+    }
+
+    .filter-toggle {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .filter-toggle input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    /* Findings table */
+    #findings-table-wrap {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      padding: 0.45rem 0.75rem;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+
+    tbody tr:hover {
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+    }
+
+    tbody td {
+      padding: 0.45rem 0.75rem;
+      font-size: 13px;
+      vertical-align: top;
+    }
+
+    .sev-icon {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .sev-error   { color: var(--red); }
+    .sev-warning { color: var(--yellow); }
+    .sev-info    { color: var(--blue); }
+
+    .file-cell {
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 12px;
+      color: var(--text-muted);
+      max-width: 180px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .msg-cell {
+      max-width: 260px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .finding-detail {
+      display: none;
+      padding: 0.5rem 0.75rem;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+    }
+
+    .finding-detail.visible {
+      display: block;
+    }
+
+    .finding-detail p {
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 0.35rem;
+    }
+
+    .finding-detail .fix-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .dismiss-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 4px;
+      padding: 0.2em 0.55em;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .dismiss-btn:hover {
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    /* ---- Right panel ---- */
+    #right-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #opportunities-card {
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #timeline {
+      flex: 1;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <header id="status-bar">
+    <span class="project-name" id="project-name">tailtest</span>
+    <span class="badge badge-gray" id="depth-badge">off</span>
+    <span class="badge badge-gray" id="ai-badge">none</span>
+    <span class="finding-count" id="finding-count"></span>
+    <span class="last-event" id="last-event"></span>
+    <span class="connection-dot" id="connection-dot" title="Disconnected"></span>
+  </header>
+
+  <main id="app">
+    <aside id="event-feed">
+      <div class="panel-heading">Events</div>
+      <div id="event-feed-list">
+        <p class="placeholder" id="events-placeholder">No events yet.</p>
+      </div>
+    </aside>
+
+    <section id="center-panel">
+      <div id="findings-panel">
+        <div class="panel-heading">
+          Findings
+          <span class="count-badge" id="findings-count-badge">0</span>
+        </div>
+        <div class="filter-bar">
+          <button class="filter-btn active" data-kind="all">All</button>
+          <button class="filter-btn" data-kind="test">Test</button>
+          <button class="filter-btn" data-kind="lint">Lint</button>
+          <button class="filter-btn" data-kind="secret">Secret</button>
+          <button class="filter-btn" data-kind="sast">SAST</button>
+          <button class="filter-btn" data-kind="sca">SCA</button>
+          <button class="filter-btn" data-kind="llm">LLM</button>
+          <label class="filter-toggle">
+            <input type="checkbox" id="new-session-toggle"> New this session
+          </label>
+        </div>
+        <div id="findings-table-wrap">
+          <p class="placeholder" id="findings-placeholder">No findings.</p>
+          <table id="findings-table" style="display:none">
+            <thead>
+              <tr>
+                <th>Sev</th>
+                <th>Kind</th>
+                <th>File</th>
+                <th>Message</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="findings-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="coverage-panel">
+        <div class="panel-heading">Coverage</div>
+        <p class="placeholder">Coverage data will appear after a test run.</p>
+      </div>
+    </section>
+
+    <aside id="right-panel">
+      <div id="opportunities-card">
+        <div class="panel-heading">Opportunities</div>
+        <p class="placeholder">Scan the project to see recommendations.</p>
+      </div>
+      <div id="timeline">
+        <div class="panel-heading">Timeline</div>
+        <p class="placeholder">Run tailtest to build history.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
