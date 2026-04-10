@@ -140,6 +140,62 @@ async def check_typescript(path: Path) -> CompileCheckResult:
     )
 
 
+async def check_rust(path: Path) -> CompileCheckResult:
+    """Check a Rust file via ``cargo check --tests``.
+
+    Walks up from ``path`` to find the nearest ``Cargo.toml`` (the crate
+    root), then runs ``cargo check --tests --quiet`` in that directory.
+    This validates that the generated test code (colocated block appended
+    to the source, or a new integration test file) at least compiles.
+
+    Returns ``ok=True`` with ``tool="skipped"`` when ``cargo`` is not on
+    PATH so the absence of the Rust toolchain does not block generation.
+    """
+    if shutil.which("cargo") is None:
+        return CompileCheckResult(ok=True, tool="skipped", message="cargo not on PATH")
+
+    # Walk up from the file to find the crate root.
+    crate_root: Path | None = None
+    current = path.parent if path.is_file() else path
+    while True:
+        if (current / "Cargo.toml").exists():
+            crate_root = current
+            break
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    if crate_root is None:
+        return CompileCheckResult(
+            ok=True, tool="skipped", message="no Cargo.toml found; skipping compile check"
+        )
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "cargo",
+            "check",
+            "--tests",
+            "--quiet",
+            cwd=str(crate_root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=60)
+    except (OSError, TimeoutError) as exc:
+        return CompileCheckResult(ok=False, tool="cargo-check", message=str(exc))
+
+    if (proc.returncode or 0) == 0:
+        return CompileCheckResult(ok=True, tool="cargo-check", message="")
+    stderr = stderr_bytes.decode(errors="replace").strip()
+    stdout = stdout_bytes.decode(errors="replace").strip()
+    return CompileCheckResult(
+        ok=False,
+        tool="cargo-check",
+        message=(stderr or stdout or f"cargo check --tests exited {proc.returncode}")[:500],
+    )
+
+
 async def check_file(path: Path, language: str) -> CompileCheckResult:
     """Dispatch to the language-specific compile check."""
     lang = language.lower()
@@ -149,6 +205,8 @@ async def check_file(path: Path, language: str) -> CompileCheckResult:
         return await check_typescript(path)
     if lang == "javascript":
         return await check_javascript(path)
+    if lang == "rust":
+        return await check_rust(path)
     return CompileCheckResult(
         ok=True, tool="skipped", message=f"no compile check for language: {language}"
     )

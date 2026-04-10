@@ -217,9 +217,9 @@ async def test_generate_tests_rejects_missing_file_arg() -> None:
 @pytest.mark.asyncio
 async def test_generate_tests_skips_unsupported_language(tmp_path: Path) -> None:
     """An unsupported source language is surfaced as a skipped status, not an error."""
-    (tmp_path / "example.rs").write_text("fn main() {}\n")
+    (tmp_path / "example.go").write_text("package main\n")
     tool = GenerateTestsTool(tmp_path)
-    response = await tool.invoke({"file": "example.rs", "project_root": str(tmp_path)})
+    response = await tool.invoke({"file": "example.go", "project_root": str(tmp_path)})
     assert response["isError"] is False
     payload = json.loads(response["content"][0]["text"])
     assert payload["status"] == "skipped"

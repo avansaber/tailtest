@@ -285,6 +285,65 @@ def parse_package_json(text: str) -> list[PackageRef]:
     return refs
 
 
+# --- Cargo.lock parsing ------------------------------------------------
+
+
+def parse_cargo_lock(text: str) -> list[PackageRef]:
+    """Parse a ``Cargo.lock`` file and return registry ``PackageRef`` objects.
+
+    ``Cargo.lock`` is a TOML file with one ``[[package]]`` section per
+    resolved dependency. Each section has at minimum a ``name`` and
+    ``version`` field. Registry packages (those sourced from crates.io or
+    another Cargo registry) also carry a ``source`` field that starts with
+    ``"registry+"``. Workspace-local packages and git dependencies are
+    intentionally excluded because they are not in the crates.io advisory
+    database queried via OSV.
+
+    All returned refs use ecosystem ``"crates.io"`` which is the OSV API
+    identifier for the Rust crate registry.
+
+    Returns an empty list on any parse failure.
+    """
+    if not text.strip():
+        return []
+
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        logger.warning("Cargo.lock parse failed: %s", exc)
+        return []
+
+    packages = data.get("package")
+    if not isinstance(packages, list):
+        return []
+
+    refs: list[PackageRef] = []
+    for pkg in packages:
+        if not isinstance(pkg, dict):
+            continue
+        name = pkg.get("name")
+        version = pkg.get("version")
+        source = pkg.get("source", "")
+        if not isinstance(name, str) or not name:
+            continue
+        if not isinstance(version, str) or not version:
+            continue
+        # Skip workspace-local packages (no source) and git dependencies.
+        # Only registry packages have vulnerabilities in crates.io's advisory DB.
+        if not isinstance(source, str) or "registry+" not in source:
+            continue
+        refs.append(
+            PackageRef(
+                name=name,
+                version=version,
+                ecosystem="crates.io",
+                source_spec="Cargo.lock",
+            )
+        )
+
+    return refs
+
+
 # --- Diff ---------------------------------------------------------------
 
 
