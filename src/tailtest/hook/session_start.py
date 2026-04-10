@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -73,6 +74,10 @@ async def run(
     process's stdin; ``project_root`` defaults to cwd.
     """
     root = (project_root or Path.cwd()).resolve()
+
+    # Reap expired LLM-judge cache files from prior sessions.
+    _reap_expired_judgments(root)
+
     payload = _parse_stdin(stdin_text)
     session_id = _extract_session_id(payload)
 
@@ -155,6 +160,23 @@ async def run(
 
 
 # --- Helpers ------------------------------------------------------------
+
+
+def _reap_expired_judgments(project_root: Path) -> None:
+    """Delete expired judgment cache files (older than 24h)."""
+    cache_dir = project_root / ".tailtest" / "cache" / "judgments"
+    if not cache_dir.exists():
+        return
+    cutoff = time.time() - 86400
+    try:
+        for p in cache_dir.glob("*.json"):
+            try:
+                if p.stat().st_mtime < cutoff:
+                    p.unlink(missing_ok=True)
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def _maybe_build_ai_offer(profile: Any, tailtest_dir: Path) -> str | None:

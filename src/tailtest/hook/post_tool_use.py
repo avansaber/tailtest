@@ -44,6 +44,7 @@ logic in ``run``; SIGINT behavior is tested via a subprocess test.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -334,11 +335,29 @@ async def run(
     # session via a flag file. SOFT append -- never replaces test output.
     rec_surface_line = _maybe_surface_rec_line(root)
 
-    # AI checks depth-mode branch (Phase 3 Task 3.5). When the project is
-    # an AI agent, ai_checks_enabled is True, and the depth is thorough or
-    # above, note that AI checks are active. Task 3.6 will replace this
-    # with the actual LLM-judge invocation.
+    # AI checks depth-mode branch (Phase 3 Task 3.5 / Task 3.6). When the
+    # project is an AI agent, ai_checks_enabled is True, and the depth is
+    # thorough or above, run the LLM-judge assertions and append any
+    # findings to the context.
     ai_checks_note = _maybe_build_ai_checks_note(root, config)
+    llm_judge_lines: list[str] = []
+    if ai_checks_note is not None:
+        try:
+            tool_input_dict = payload.get("tool_input") or {}
+            if not isinstance(tool_input_dict, dict):
+                tool_input_dict = {}
+            tool_output_raw = payload.get("tool_response", payload.get("tool_output", ""))
+            if not isinstance(tool_output_raw, str):
+                tool_output_raw = str(tool_output_raw)
+            llm_judge_lines = await _run_llm_judge(
+                project_root=root,
+                tool_name=tool_name,
+                tool_input=tool_input_dict,
+                tool_output=tool_output_raw[:2000],
+                run_id=run_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("LLM-judge invocation failed: %s", exc)
 
     stdout_json = _format_additional_context(
         batch,
@@ -346,6 +365,7 @@ async def run(
         auto_offer_suggestions=auto_offer_suggestions,
         rec_surface_line=rec_surface_line,
         ai_checks_note=ai_checks_note,
+        llm_judge_lines=llm_judge_lines,
     )
     return HookResult(stdout_json=stdout_json, reason="ok")
 
@@ -376,12 +396,38 @@ def _maybe_build_ai_checks_note(root: Path, config: Config) -> str | None:
         if profile.ai_checks_enabled is not True:
             return None
 
-        _ai_checks_should_run = True  # noqa: F841 -- Task 3.6 will consume via helper
-        logger.debug("AI checks enabled for this run -- LLM-judge will fire in Task 3.6")
-        return "tailtest: AI checks active (thorough depth). LLM-judge assertions will run on agent outputs."
+        return "tailtest: AI checks active (thorough depth). LLM-judge assertions firing."
     except Exception as exc:  # noqa: BLE001
         logger.warning("AI checks note failed: %s", exc)
         return None
+
+
+async def _run_llm_judge(
+    project_root: Path,
+    tool_name: str,
+    tool_input: dict,
+    tool_output: str,
+    run_id: str,
+) -> list[str]:
+    """Run LLM-judge assertions. Returns list of finding lines for additionalContext."""
+    from tailtest.core.assertions.llm_judge import LLMJudge
+
+    judge = LLMJudge(project_root)
+    lines: list[str] = []
+
+    # Check tool-call correctness
+    ctx = f"Tool {tool_name} was called on this project."
+    result = await judge.check_tool_call_correctness(tool_name, tool_input, ctx, run_id=run_id)
+    if result.verdict == "fail":
+        lines.append(f"[llm-judge] tool_call_correctness: FAIL -- {result.reasoning}")
+
+    # Check PII in output
+    if tool_output:
+        pii = await judge.check_pii_leakage(tool_output, run_id=run_id)
+        if pii.verdict == "fail":
+            lines.append(f"[llm-judge] pii_leakage: FAIL -- {pii.reasoning}")
+
+    return lines
 
 
 def _maybe_surface_rec_line(root: Path) -> str | None:
@@ -751,6 +797,7 @@ def _format_additional_context(
     auto_offer_suggestions: list[str] | None = None,
     rec_surface_line: str | None = None,
     ai_checks_note: str | None = None,
+    llm_judge_lines: list[str] | None = None,
 ) -> str:
     """Build the hookSpecificOutput JSON payload for Claude's next turn.
 
@@ -822,6 +869,12 @@ def _format_additional_context(
     # so findings remain the most prominent item in the context.
     if ai_checks_note:
         lines.append(ai_checks_note)
+
+    # LLM-judge findings (Phase 3 Task 3.6): appended last so test failures
+    # remain the most prominent part of the context.
+    if llm_judge_lines:
+        for judge_line in llm_judge_lines:
+            lines.append(judge_line)
 
     additional_context = "\n".join(lines)
     additional_context = _truncate(additional_context)
