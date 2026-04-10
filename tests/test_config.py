@@ -12,9 +12,17 @@ from tailtest.core.config import (
     Config,
     ConfigLoader,
     DepthMode,
+    NexTestPreference,
+    RunnersConfig,
+    RustRunnerConfig,
     SastConfig,
     ScaConfig,
     SecurityConfig,
+    WorkspaceMode,
+)
+from tailtest.core.config.defaults import (
+    _detect_workspace_mode,
+    default_rust_runner_config_for_profile,
 )
 
 
@@ -286,3 +294,142 @@ def test_security_config_rejects_unknown_nested_field() -> None:
     """extra='forbid' on SastConfig catches typos."""
     with pytest.raises(ValidationError):
         SastConfig(enabled=True, ruleset="p/default", unknown_field=True)  # type: ignore[call-arg]
+
+
+# --- Rust runner config (Phase 4.5 Task 4.5.6) ------------------------
+
+
+def test_rust_runner_config_defaults() -> None:
+    cfg = RustRunnerConfig()
+    assert cfg.prefer_nextest == NexTestPreference.AUTO
+    assert cfg.workspace_mode == WorkspaceMode.AUTO
+    assert cfg.run_doc_tests is True
+
+
+def test_nextest_preference_enum_values() -> None:
+    assert {v.value for v in NexTestPreference} == {"auto", "always", "never"}
+
+
+def test_workspace_mode_enum_values() -> None:
+    assert {v.value for v in WorkspaceMode} == {"auto", "single", "workspace"}
+
+
+def test_runners_config_has_rust_field() -> None:
+    runners = RunnersConfig()
+    assert isinstance(runners.rust, RustRunnerConfig)
+    assert runners.auto_detect is True
+
+
+def test_config_default_includes_rust_runner() -> None:
+    config = Config()
+    assert isinstance(config.runners.rust, RustRunnerConfig)
+    assert config.runners.rust.prefer_nextest == NexTestPreference.AUTO
+
+
+def test_config_rust_runner_roundtrip(tmp_path: Path) -> None:
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir()
+    cfg = Config()
+    cfg.runners.rust.prefer_nextest = NexTestPreference.ALWAYS
+    cfg.runners.rust.run_doc_tests = False
+    loader = ConfigLoader(tailtest_dir)
+    loader.save(cfg)
+    loaded = loader.load()
+    assert loaded.runners.rust.prefer_nextest == NexTestPreference.ALWAYS
+    assert loaded.runners.rust.run_doc_tests is False
+
+
+def test_config_rust_section_from_yaml(tmp_path: Path) -> None:
+    """A config.yaml with runners.rust keys must parse into RustRunnerConfig."""
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir()
+    yaml_content = """\
+schema_version: 1
+runners:
+  rust:
+    prefer_nextest: never
+    workspace_mode: workspace
+    run_doc_tests: false
+"""
+    (tailtest_dir / "config.yaml").write_text(yaml_content)
+    config = ConfigLoader(tailtest_dir).load()
+    assert config.runners.rust.prefer_nextest == NexTestPreference.NEVER
+    assert config.runners.rust.workspace_mode == WorkspaceMode.WORKSPACE
+    assert config.runners.rust.run_doc_tests is False
+
+
+def test_config_without_rust_section_uses_defaults(tmp_path: Path) -> None:
+    """Legacy configs written before Phase 4.5 (no runners.rust key) must still load."""
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir()
+    (tailtest_dir / "config.yaml").write_text("schema_version: 1\ndepth: standard\n")
+    config = ConfigLoader(tailtest_dir).load()
+    assert config.runners.rust.prefer_nextest == NexTestPreference.AUTO
+    assert config.runners.rust.workspace_mode == WorkspaceMode.AUTO
+    assert config.runners.rust.run_doc_tests is True
+
+
+def test_rust_runner_config_rejects_unknown_field() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RustRunnerConfig(prefer_nextest="auto", bogus=True)  # type: ignore[call-arg]
+
+
+# --- default_rust_runner_config_for_profile ---------------------------
+
+
+def test_default_rust_runner_config_single_crate(tmp_path: Path) -> None:
+    """Single-crate project (no [workspace] in Cargo.toml) -> WorkspaceMode.SINGLE."""
+    from tailtest.core.scan.profile import ProjectProfile
+
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "t"\nversion = "0.1.0"\n')
+    profile = ProjectProfile(root=tmp_path)
+    cfg = default_rust_runner_config_for_profile(profile)
+    assert cfg.workspace_mode == WorkspaceMode.SINGLE
+    assert cfg.prefer_nextest == NexTestPreference.AUTO
+    assert cfg.run_doc_tests is True
+
+
+def test_default_rust_runner_config_workspace(tmp_path: Path) -> None:
+    """Workspace project -> WorkspaceMode.WORKSPACE."""
+    from tailtest.core.scan.profile import ProjectProfile
+
+    (tmp_path / "Cargo.toml").write_text(
+        '[workspace]\nmembers = ["crate_a"]\n\n[workspace.package]\nversion = "0.1.0"\n'
+    )
+    profile = ProjectProfile(root=tmp_path)
+    cfg = default_rust_runner_config_for_profile(profile)
+    assert cfg.workspace_mode == WorkspaceMode.WORKSPACE
+
+
+def test_default_rust_runner_config_missing_cargo_toml(tmp_path: Path) -> None:
+    """No Cargo.toml -> falls back to WorkspaceMode.AUTO gracefully."""
+    from tailtest.core.scan.profile import ProjectProfile
+
+    profile = ProjectProfile(root=tmp_path)
+    cfg = default_rust_runner_config_for_profile(profile)
+    assert cfg.workspace_mode == WorkspaceMode.AUTO
+
+
+def test_detect_workspace_mode_single(tmp_path: Path) -> None:
+    from tailtest.core.scan.profile import ProjectProfile
+
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "t"\nversion = "0.1.0"\n')
+    profile = ProjectProfile(root=tmp_path)
+    assert _detect_workspace_mode(profile) == WorkspaceMode.SINGLE
+
+
+def test_detect_workspace_mode_workspace(tmp_path: Path) -> None:
+    from tailtest.core.scan.profile import ProjectProfile
+
+    (tmp_path / "Cargo.toml").write_text("[workspace]\nmembers = []\n")
+    profile = ProjectProfile(root=tmp_path)
+    assert _detect_workspace_mode(profile) == WorkspaceMode.WORKSPACE
+
+
+def test_detect_workspace_mode_auto_on_error(tmp_path: Path) -> None:
+    from tailtest.core.scan.profile import ProjectProfile
+
+    profile = ProjectProfile(root=tmp_path)  # no Cargo.toml
+    assert _detect_workspace_mode(profile) == WorkspaceMode.AUTO
