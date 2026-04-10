@@ -210,7 +210,10 @@ def test_atomic_write_original_unchanged_on_write_failure(tmp_path: Path, caplog
     original_content = dismissed_path.read_text(encoding="utf-8")
 
     # Simulate OSError during the tmp write step.
-    with patch("pathlib.Path.write_text", side_effect=OSError("disk full")), caplog.at_level(logging.WARNING):
+    with (
+        patch("pathlib.Path.write_text", side_effect=OSError("disk full")),
+        caplog.at_level(logging.WARNING),
+    ):
         store.dismiss("rec-new", _future(days=10))
 
     # The original file must be intact.

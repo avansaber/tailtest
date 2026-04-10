@@ -14,7 +14,7 @@ from tailtest.core.recommendations import (
 
 
 def _make_rec(**kwargs) -> Recommendation:
-    defaults = dict(
+    defaults: dict = dict(
         kind=RecommendationKind.add_test,
         priority=RecommendationPriority.medium,
         title="Add unit tests",
