@@ -121,6 +121,50 @@ For any `kind`, after completing the action, dismiss the recommendation using th
 
 ---
 
+## /tailtest accept-ai-checks -- enable AI-specific checks
+
+When the user runs `/tailtest accept-ai-checks`, run:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, 'src')
+from tailtest.core.config.loader import ConfigLoader
+from pathlib import Path
+loader = ConfigLoader(Path('.') / '.tailtest')
+config = loader.load()
+config.ai_checks_enabled = True
+loader.save(config)
+print('AI checks enabled. They will run when scan_mode is thorough or above.')
+"
+```
+
+Then confirm to the user: "AI-specific checks enabled. Run \`/tailtest config set scan_mode thorough\` to activate them."
+
+---
+
+## /tailtest dismiss-ai-checks -- skip AI-specific checks
+
+When the user runs `/tailtest dismiss-ai-checks`, run:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, 'src')
+from tailtest.core.config.loader import ConfigLoader
+from pathlib import Path
+loader = ConfigLoader(Path('.') / '.tailtest')
+config = loader.load()
+config.ai_checks_enabled = False
+loader.save(config)
+print('AI checks dismissed.')
+"
+```
+
+Then confirm to the user: "AI checks dismissed. tailtest will not ask again. You can re-enable later with \`/tailtest accept-ai-checks\`."
+
+---
+
 ## What not to do
 
 - Do not run `pip install`, `npm install`, or any package-manager install command on the user's behalf. The `install_tool` flow always gives the user a command to copy; tailtest never silently installs tools.

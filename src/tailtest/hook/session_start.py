@@ -42,7 +42,7 @@ from tailtest.core.config import ConfigLoader
 from tailtest.core.recommendations.store import DismissalStore
 from tailtest.core.recommender.engine import RecommendationEngine
 from tailtest.core.scan import ProjectScanner
-from tailtest.core.scan.profile import ScanStatus
+from tailtest.core.scan.profile import AISurface, ScanStatus
 from tailtest.core.session_state import SessionState, save_session_state
 
 logger = logging.getLogger(__name__)
@@ -91,6 +91,10 @@ async def run(
     try:
         scanner = ProjectScanner(root)
         profile = scanner.scan_shallow()
+        # Propagate ai_checks_enabled from config into the profile so
+        # downstream consumers (hooks, engine) see the user's decision
+        # without re-reading the config file themselves.
+        profile = profile.model_copy(update={"ai_checks_enabled": config.ai_checks_enabled})
         scanner.save_profile(profile)
         if profile.scan_status == ScanStatus.FAILED:
             scan_status = "failed"
@@ -132,6 +136,15 @@ async def run(
         if rec_line and len(message.encode("utf-8")) < 1800:
             message = f"{message}\n{rec_line}"
 
+    # One-time AI-agent offer (Phase 3 Task 3.5). Fires when the project
+    # is detected as an AI agent and the user has not yet decided whether
+    # to enable AI-specific checks. The flag file persists permanently so
+    # the offer fires at most once total (not once per session).
+    if profile is not None and not _profile_is_empty(profile) and scan_status != "failed":
+        ai_offer = _maybe_build_ai_offer(profile, tailtest_dir)
+        if ai_offer:
+            message = f"{message}\n{ai_offer}"
+
     envelope = {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
@@ -142,6 +155,49 @@ async def run(
 
 
 # --- Helpers ------------------------------------------------------------
+
+
+def _maybe_build_ai_offer(profile: Any, tailtest_dir: Path) -> str | None:
+    """Return a one-time AI-agent offer string, or None.
+
+    Fires when ALL of these are true:
+    - profile.ai_surface == AISurface.AGENT
+    - profile.ai_checks_enabled is None (user has not decided)
+    - .tailtest/ai_offer_shown.flag does NOT exist
+
+    Writes the flag on first call so the offer never repeats. All
+    failures are swallowed and logged -- this path must never raise.
+    """
+    try:
+        ai_surface = getattr(profile, "ai_surface", None)
+        ai_checks_enabled = getattr(profile, "ai_checks_enabled", None)
+
+        if ai_surface != AISurface.AGENT:
+            return None
+        if ai_checks_enabled is not None:
+            return None
+
+        flag_path = tailtest_dir / "ai_offer_shown.flag"
+        if flag_path.exists():
+            return None
+
+        # Write the flag so subsequent sessions never show the offer again.
+        try:
+            tailtest_dir.mkdir(parents=True, exist_ok=True)
+            flag_path.write_text("", encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not write ai_offer_shown.flag: %s", exc)
+
+        return (
+            "tailtest: AI agent detected. Want AI-specific checks (LLM-judge assertions)"
+            " at thorough depth?\n"
+            "  Run /tailtest accept-ai-checks to enable, or /tailtest dismiss-ai-checks"
+            " to skip.\n"
+            "  These checks only run when scan_mode is set to \"thorough\" or above."
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AI offer check failed: %s", exc)
+        return None
 
 
 def _build_rec_count_line(profile: Any, tailtest_dir: Path) -> str | None:
