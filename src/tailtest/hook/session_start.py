@@ -127,10 +127,16 @@ async def run(
             [f.name for f in profile.frameworks_detected] if profile.frameworks_detected else []
         )
         runner_part = runners_list[0] if runners_list else "no test runner detected"
-        message = (
-            f"tailtest: initialized in {config.depth.value} mode, "
-            f"{primary} project, {runner_part}. Run /tailtest:status for options."
-        )
+        if getattr(profile, "likely_vibe_coded", False) is True:
+            message = (
+                "tailtest is ready to help you test this. "
+                "Type /tailtest to see recommendations, or /tailtest setup for a quick config interview."
+            )
+        else:
+            message = (
+                f"tailtest: initialized in {config.depth.value} mode, "
+                f"{primary} project, {runner_part}. Run /tailtest:status for options."
+            )
 
     # Append a high-priority recommendation count if any exist.
     # One line max; never shows full recommendation text (noise discipline).
