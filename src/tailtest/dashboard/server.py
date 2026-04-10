@@ -34,9 +34,11 @@ import watchfiles
 
 from tailtest.core.baseline.manager import BaselineManager
 from tailtest.core.config.loader import ConfigLoader
+from tailtest.core.events.schema import EventKind
 from tailtest.core.events.writer import EventWriter
 from tailtest.core.findings.schema import FindingBatch
 from tailtest.core.recommendations.store import DismissalStore
+from tailtest.core.recommender.engine import RecommendationEngine
 from tailtest.core.scan.scanner import ProjectScanner
 
 logger = logging.getLogger("tailtest.dashboard")
@@ -135,6 +137,8 @@ class DashboardServer:
         app.router.add_get("/api/findings", self._handle_api_findings)
         app.router.add_get("/api/events", self._handle_api_events)
         app.router.add_get("/api/coverage", self._handle_api_coverage)
+        app.router.add_get("/api/recommendations", self._handle_api_recommendations)
+        app.router.add_get("/api/timeline", self._handle_api_timeline)
         app.router.add_post("/api/accept/{recommendation_id}", self._handle_api_accept)
         app.router.add_post("/api/dismiss/{finding_id}", self._handle_api_dismiss)
 
@@ -379,6 +383,89 @@ class DashboardServer:
             return aiohttp.web.json_response({"coverage": coverage})
         except Exception as exc:  # noqa: BLE001
             logger.exception("Error in /api/coverage")
+            return self._problem(500, "Internal Server Error", str(exc))
+
+    async def _handle_api_recommendations(
+        self, _request: aiohttp.web.Request
+    ) -> aiohttp.web.Response:
+        """GET /api/recommendations -- actionable recommendations for the project."""
+        try:
+            project_root = self._tailtest_dir.parent
+            scanner = ProjectScanner(project_root)
+            profile = scanner.load_profile(tailtest_dir=self._tailtest_dir)
+            if profile is None:
+                return aiohttp.web.json_response({"recommendations": []})
+
+            engine = RecommendationEngine()
+            recs = engine.compute(profile)
+
+            # Apply stored dismissals so is_dismissed is accurate.
+            store = DismissalStore(project_root)
+            recs = store.apply(recs)
+
+            recs_data = [
+                {
+                    "id": r.id,
+                    "kind": r.kind.value,
+                    "priority": r.priority.value,
+                    "title": r.title,
+                    "why": r.why,
+                    "next_step": r.next_step,
+                    "is_dismissed": r.is_dismissed,
+                }
+                for r in recs
+            ]
+            return aiohttp.web.json_response({"recommendations": recs_data})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error in /api/recommendations")
+            return self._problem(500, "Internal Server Error", str(exc))
+
+    async def _handle_api_timeline(self, _request: aiohttp.web.Request) -> aiohttp.web.Response:
+        """GET /api/timeline -- per-day pass/fail counts for the last 7 days."""
+        try:
+            events = EventWriter(self._tailtest_dir).read_all()
+
+            # Filter to RUN events only.
+            run_events = [e for e in events if e.kind == EventKind.RUN]
+
+            # Group by UTC date, count passes and failures.
+            # A RUN event's payload may have "passed" / "failed" counts, or
+            # we infer from "result": "passed"|"failed".
+            day_counts: dict[str, dict[str, int]] = {}
+            for event in run_events:
+                date_str = event.timestamp.strftime("%Y-%m-%d")
+                if date_str not in day_counts:
+                    day_counts[date_str] = {"passed": 0, "failed": 0}
+                payload = event.payload
+                # Try numeric fields first (tests_passed / tests_failed).
+                passed = payload.get("tests_passed", 0)
+                failed = payload.get("tests_failed", 0)
+                # Fall back to result string.
+                if passed == 0 and failed == 0:
+                    result = str(payload.get("result", "")).lower()
+                    if result == "passed":
+                        passed = 1
+                    elif result == "failed":
+                        failed = 1
+                    else:
+                        # Unknown result -- count as one run, pass by default.
+                        passed = 1
+                day_counts[date_str]["passed"] += passed
+                day_counts[date_str]["failed"] += failed
+
+            # Keep only the last 7 days that have data, sorted chronologically.
+            sorted_days = sorted(day_counts.keys())[-7:]
+            days_data = [
+                {
+                    "date": d,
+                    "passed": day_counts[d]["passed"],
+                    "failed": day_counts[d]["failed"],
+                }
+                for d in sorted_days
+            ]
+            return aiohttp.web.json_response({"days": days_data})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error in /api/timeline")
             return self._problem(500, "Internal Server Error", str(exc))
 
     async def _handle_api_accept(self, request: aiohttp.web.Request) -> aiohttp.web.Response:

@@ -28,6 +28,8 @@ def _make_server(tailtest_dir: Path) -> TestServer:
     app.router.add_get("/api/findings", server_obj._handle_api_findings)
     app.router.add_get("/api/events", server_obj._handle_api_events)
     app.router.add_get("/api/coverage", server_obj._handle_api_coverage)
+    app.router.add_get("/api/recommendations", server_obj._handle_api_recommendations)
+    app.router.add_get("/api/timeline", server_obj._handle_api_timeline)
     app.router.add_post("/api/accept/{recommendation_id}", server_obj._handle_api_accept)
     app.router.add_post("/api/dismiss/{finding_id}", server_obj._handle_api_dismiss)
     return TestServer(app)
