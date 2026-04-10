@@ -181,6 +181,70 @@ class OSVLookup:
 
         return findings
 
+    async def check_imports(
+        self,
+        root: str | Path,
+        *,
+        run_id: str,
+    ) -> list[Finding]:
+        """Scan third-party imports in *root* for known vulnerabilities.
+
+        Uses import-based discovery (no manifest required). Only checks
+        packages with a known PyPI mapping to avoid false positives. Returns
+        findings in the same format as ``check_manifest_diff``.
+
+        Returns an empty list when:
+        - No known third-party imports are found.
+        - Every queried package is cached as clean.
+        - The OSV API is unreachable (logged, not raised).
+        """
+        from .imports import discover_imports
+
+        import_map = discover_imports(root)
+        if not import_map:
+            return []
+
+        # Build PackageRef list from imports. Version is unknown ("") for
+        # import-only projects -- OSV returns all known vulns for unversioned
+        # queries, which is conservative but correct for manifest-free projects.
+        packages = [
+            PackageRef(name=pypi_name, version="", ecosystem="PyPI")
+            for pypi_name in import_map.values()
+        ]
+
+        findings: list[Finding] = []
+        uncached_refs: list[PackageRef] = []
+
+        # First pass: resolve cache hits.
+        for ref in packages:
+            cached = self._load_cached(ref) if self.enable_cache else None
+            if cached is None:
+                uncached_refs.append(ref)
+                continue
+            for vuln in cached:
+                findings.append(self._vuln_to_finding(vuln, ref=ref, run_id=run_id))
+
+        if not uncached_refs:
+            return findings
+
+        # Second pass: hit OSV for uncached refs.
+        try:
+            api_results = await self._query_batch(uncached_refs)
+        except OSVNotAvailable as exc:
+            logger.info("OSV import lookup skipped: %s", exc)
+            return findings
+        except Exception as exc:  # noqa: BLE001, defensive
+            logger.warning("OSV import query failed: %s", exc)
+            return findings
+
+        for ref, vulns in zip(uncached_refs, api_results, strict=False):
+            if self.enable_cache:
+                self._save_cached(ref, vulns)
+            for vuln in vulns:
+                findings.append(self._vuln_to_finding(vuln, ref=ref, run_id=run_id))
+
+        return findings
+
     # --- API call ---------------------------------------------------
 
     async def _query_batch(self, refs: list[PackageRef]) -> list[list[OSVVulnerability]]:
