@@ -94,7 +94,7 @@ async function init() {
   sessionStart = new Date().toISOString();
   setupFilters();
   setupEventFeedScroll();
-  await Promise.all([fetchStatus(), fetchFindings(), fetchEvents()]);
+  await Promise.all([fetchStatus(), fetchFindings(), fetchEvents(), fetchCoverage(), fetchOpportunities(), fetchTimeline()]);
   connectWS();
 }
 
@@ -342,6 +342,135 @@ async function dismissFinding(id, mainRow, detailRow) {
       }
     }
   } catch (_) { /* ignore */ }
+}
+
+// --- Render: coverage heatmap ---
+
+async function fetchCoverage() {
+  try {
+    const resp = await fetch('/api/coverage');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    renderCoverage(data);
+  } catch (_) { /* ignore */ }
+}
+
+function renderCoverage(data) {
+  const panel = document.getElementById('coverage-panel');
+  if (!data.coverage || Object.keys(data.coverage).length === 0) {
+    panel.innerHTML = '<div class="panel-heading">Coverage</div><p class="placeholder">Coverage data will appear after a test run.</p>';
+    return;
+  }
+
+  const pct = data.coverage.delta_pct ?? data.coverage.delta_coverage_pct ?? 0;
+  const uncovered = data.coverage.uncovered_lines ?? data.coverage.uncovered_new_lines ?? 0;
+
+  const color = pct >= 0.8 ? 'var(--green)' : pct >= 0.5 ? 'var(--yellow)' : 'var(--red)';
+  const uncoveredCount = Array.isArray(uncovered) ? uncovered.length : uncovered;
+
+  panel.innerHTML = `
+    <div class="panel-heading">Coverage</div>
+    <div class="coverage-summary">
+      <div class="coverage-tile" style="background: ${color}">
+        <span class="coverage-pct">${Math.round(pct * 100)}%</span>
+        <span class="coverage-label">delta coverage</span>
+      </div>
+      <p class="coverage-detail">${uncoveredCount} new line(s) uncovered</p>
+    </div>
+  `;
+}
+
+// --- Render: opportunities card ---
+
+async function fetchOpportunities() {
+  try {
+    const resp = await fetch('/api/recommendations');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    renderOpportunities(data);
+  } catch (_) { /* ignore */ }
+}
+
+function renderOpportunities(data) {
+  const card = document.getElementById('opportunities-card');
+  const recs = (data.recommendations || []).filter((r) => !r.is_dismissed);
+
+  if (recs.length === 0) {
+    card.innerHTML = '<div class="panel-heading">Opportunities</div><p class="placeholder">No recommendations at this time.</p>';
+    return;
+  }
+
+  const items = recs.map((r) => `
+    <div class="rec-item priority-${r.priority}">
+      <span class="rec-badge">${r.priority}</span>
+      <div class="rec-body">
+        <strong>${r.title}</strong>
+        <p class="rec-why">${r.why}</p>
+        <p class="rec-step">${r.next_step}</p>
+      </div>
+      <div class="rec-actions">
+        <button onclick="dismissRec('${r.id}')">Dismiss</button>
+      </div>
+    </div>
+  `).join('');
+
+  card.innerHTML = `<div class="panel-heading">Opportunities <span class="count-badge">${recs.length}</span></div>${items}`;
+}
+
+async function dismissRec(id) {
+  try {
+    await fetch(`/api/dismiss/${id}`, { method: 'POST', body: JSON.stringify({ days: 7 }), headers: { 'Content-Type': 'application/json' } });
+    await fetchOpportunities();
+  } catch (_) { /* ignore */ }
+}
+
+// --- Render: timeline ---
+
+async function fetchTimeline() {
+  try {
+    const resp = await fetch('/api/timeline');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    renderTimeline(data);
+  } catch (_) { /* ignore */ }
+}
+
+function renderTimeline(data) {
+  const el = document.getElementById('timeline');
+  const days = data.days || [];
+
+  if (days.length === 0) {
+    el.innerHTML = '<div class="panel-heading">Timeline</div><p class="placeholder">Run tailtest to build history.</p>';
+    return;
+  }
+
+  const maxTotal = Math.max(...days.map((d) => d.passed + d.failed), 1);
+  const barWidth = 20;
+  const height = 60;
+  const gap = 4;
+  const totalWidth = days.length * (barWidth + gap);
+
+  const bars = days.map((d, i) => {
+    const total = d.passed + d.failed;
+    const barH = Math.round((total / maxTotal) * height);
+    const y = height - barH;
+    const color = d.failed > 0 ? 'var(--red)' : 'var(--green)';
+    const x = i * (barWidth + gap);
+    return `<rect x="${x}" y="${y}" width="${barWidth}" height="${barH}" fill="${color}" rx="2"><title>${d.date}: ${d.passed} passed, ${d.failed} failed</title></rect>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="panel-heading">Timeline (7 days)</div>
+    <div style="padding: 0.75rem 1rem">
+      <svg viewBox="0 0 ${totalWidth} ${height}" style="width:100%;height:${height}px">
+        ${bars}
+      </svg>
+      <div class="timeline-legend">
+        <span style="color:var(--green)">&#9632;</span> passed
+        <span style="color:var(--red)">&#9632;</span> failed
+      </div>
+    </div>
+  `;
 }
 
 document.addEventListener('DOMContentLoaded', init);

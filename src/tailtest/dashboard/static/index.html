@@ -441,6 +441,116 @@
       flex: 1;
       overflow-y: auto;
     }
+
+    /* ---- Coverage heatmap ---- */
+    .coverage-summary {
+      padding: 0.75rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .coverage-tile {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      padding: 0.6rem 1.2rem;
+      width: fit-content;
+      gap: 0.15rem;
+    }
+
+    .coverage-pct {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--bg);
+      line-height: 1;
+    }
+
+    .coverage-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--bg);
+      opacity: 0.85;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .coverage-detail {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* ---- Recommendations / opportunities ---- */
+    .rec-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .rec-badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border-radius: 4px;
+      padding: 0.2em 0.45em;
+      flex-shrink: 0;
+      margin-top: 0.15rem;
+    }
+
+    .priority-high   .rec-badge { background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); }
+    .priority-medium .rec-badge { background: color-mix(in srgb, var(--yellow) 20%, transparent); color: var(--yellow); }
+    .priority-low    .rec-badge { background: color-mix(in srgb, var(--gray) 20%, transparent); color: var(--gray); }
+
+    .rec-body {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .rec-why {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+    }
+
+    .rec-step {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-style: italic;
+      margin-top: 0.15rem;
+    }
+
+    .rec-actions {
+      flex-shrink: 0;
+    }
+
+    .rec-actions button {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 4px;
+      padding: 0.2em 0.55em;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .rec-actions button:hover {
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    /* ---- Timeline legend ---- */
+    .timeline-legend {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 0.4rem;
+      display: flex;
+      gap: 0.75rem;
+    }
   </style>
 </head>
 <body>

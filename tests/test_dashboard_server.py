@@ -180,6 +180,84 @@ async def test_new_event_lines_broadcast_to_ws_clients(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ws_receives_ping(tmp_path: Path) -> None:
+    """WS client receives at least one ping message when ping interval is short."""
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir()
+
+    import tailtest.dashboard.server as _server_mod
+
+    original_interval = _server_mod._PING_INTERVAL
+    _server_mod._PING_INTERVAL = 0.05  # 50 ms
+
+    server = DashboardServer(tailtest_dir)
+    port = find_free_port(20777)
+    await server.start(host="127.0.0.1", port=port)
+
+    received_ping = False
+    try:
+        import aiohttp
+
+        async with (
+            aiohttp.ClientSession() as session,
+            session.ws_connect(
+                f"ws://127.0.0.1:{port}/live",
+                headers={"Host": f"127.0.0.1:{port}"},
+            ) as ws,
+        ):
+            # Wait up to 0.5 s for a ping.
+            deadline = asyncio.get_event_loop().time() + 0.5
+            while asyncio.get_event_loop().time() < deadline:
+                try:
+                    msg = await asyncio.wait_for(ws.receive(), timeout=0.15)
+                except TimeoutError:
+                    continue
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    if data.get("kind") == "ping":
+                        received_ping = True
+                        break
+    finally:
+        _server_mod._PING_INTERVAL = original_interval
+        await server.stop()
+
+    assert received_ping, "Expected at least one ping message within 0.5 s"
+
+
+@pytest.mark.asyncio
+async def test_ws_connect_and_disconnect(tmp_path: Path) -> None:
+    """WS client connects cleanly and server removes it from _ws_clients on disconnect."""
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir()
+
+    server = DashboardServer(tailtest_dir)
+    port = find_free_port(21777)
+    await server.start(host="127.0.0.1", port=port)
+
+    try:
+        import aiohttp
+
+        async with (
+            aiohttp.ClientSession() as session,
+            session.ws_connect(
+                f"ws://127.0.0.1:{port}/live",
+                headers={"Host": f"127.0.0.1:{port}"},
+            ) as ws,
+        ):
+            # Give the server a moment to register the client.
+            await asyncio.sleep(0.05)
+            assert len(server._ws_clients) == 1
+            # Close the connection from the client side.
+            await ws.close()
+
+        # Give the server a moment to process the disconnect.
+        await asyncio.sleep(0.1)
+        assert len(server._ws_clients) == 0
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
 async def test_index_serves_html(tmp_path: Path) -> None:
     """GET / returns 200 with Content-Type text/html and an <html element."""
     tailtest_dir = tmp_path / ".tailtest"
