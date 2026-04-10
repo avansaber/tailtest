@@ -90,6 +90,7 @@ async def test_session_start_vibe_coded_uses_warmer_phrasing(tmp_path: Path) -> 
         patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
     ):
         mock_scanner = MagicMock()
+        mock_scanner.load_profile.return_value = None  # no cache -> fresh scan
         mock_scanner.scan_shallow.return_value = profile
         mock_scanner.save_profile.return_value = None
         mock_scanner_cls.return_value = mock_scanner
@@ -118,6 +119,7 @@ async def test_session_start_non_vibe_coded_uses_neutral_phrasing(tmp_path: Path
         patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
     ):
         mock_scanner = MagicMock()
+        mock_scanner.load_profile.return_value = None  # no cache -> fresh scan
         mock_scanner.scan_shallow.return_value = profile
         mock_scanner.save_profile.return_value = None
         mock_scanner_cls.return_value = mock_scanner
