@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tailtester"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "tailtest — the test + security validator that lives inside Claude Code. Never blocks, never lies."
 readme = "README.md"
 license = { text = "Apache-2.0" }

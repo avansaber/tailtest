@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] - 2026-04-09
+
+### Added
+- **Phase 2 security layer.** The brand promise lands: tailtest is now the test + security validator that lives inside Claude Code. Every Claude edit at standard depth runs the impacted tests AND the security scanner trio (gitleaks, Semgrep, OSV) and surfaces both kinds of findings through the same `Finding` schema.
+- **GitleaksRunner** at `src/tailtest/security/secrets/gitleaks.py`. Per-file secret scanning via `gitleaks detect --no-git --report-format json`. Graceful fallback when the binary is not installed. Every secret finding maps to `cwe_id="CWE-798"` (Use of Hard-coded Credentials).
+- **SemgrepRunner** at `src/tailtest/security/sast/semgrep.py`. Batch SAST scanning across the changed files via `semgrep --config <ruleset> --json`. Default ruleset is `p/default`; configurable per-project via `.tailtest/config.yaml` `security.sast.ruleset`. Severity mapping: ERROR -> HIGH, WARNING -> MEDIUM, INFO -> LOW. CWE extraction from rule metadata.
+- **OSVLookup** at `src/tailtest/security/sca/osv.py` + `manifests.py`. Dependency vulnerability scanning via `https://api.osv.dev/v1/querybatch` with per-vuln hydration via `/v1/vulns/<id>`, on-disk caching at `.tailtest/cache/osv/` and `.tailtest/cache/osv-vulns/`, alias-chain dedup so the user does not see the same vulnerability under multiple ids (GHSA / PYSEC / CVE), `database_specific.severity` text-label fallback for advisories that ship a CVSS metric vector with no numeric score, CWE extraction from `database_specific.cwe_ids`.
+- **Manifest parsers** for `pyproject.toml` (PEP 621 `[project.dependencies]` + `[project.optional-dependencies]`) and `package.json` (`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`). `diff_manifests(old, new)` returns added + bumped packages keyed on `(ecosystem, name)` so PyPI `foo` and npm `foo` stay distinct. First-run-on-a-manifest treats every dep as added so the user gets immediate CVE feedback.
+- **Manifest snapshot cache** at `.tailtest/cache/manifests/<filename>.snap` so subsequent hook runs only surface added or bumped deps, not the full pre-existing dependency set.
+- **PostToolUse security phase** in `hook/post_tool_use.py`. Runs after the test phase (failing tests skip security to keep the hot loop test-first), depth-gated (`quick` runs only gitleaks; `standard+` runs the full trio), merges security findings into the same `FindingBatch` as test findings BEFORE baseline filtering so the baseline applies uniformly. Summary line format: `tailtest: 14/14 tests passed · 1 new security issue · 1.8s`.
+- **HTMLReporter** at `src/tailtest/core/reporter/html.py`. Self-contained HTML report (inline CSS, no JavaScript, no CDN, no external assets) with sections for tests, delta coverage, findings grouped by kind in a fixed order (test failures -> secrets -> SAST -> SCA -> coverage -> lint -> AI surface -> validator -> red team), severity stripes, baseline summary, footer. Atomic writes to `.tailtest/reports/<iso>.html` + `.tailtest/reports/latest.html`. XSS-safe: every external string runs through `html.escape()` before it lands in the body.
+- **`/tailtest:debt` skill** at `skills/debt/SKILL.md`. Read-only review of the `.tailtest/baseline.yaml` accepted-debt ledger.
+- **`/tailtest:security` skill** at `skills/security/SKILL.md`. 4-part posture view: scanner posture (which scanners are enabled + ruleset + depth), current findings (new vs suppressed counts), breakdown by kind, follow-ups (action lines based on the current state).
+- **Baseline documentation header** prepended to every `baseline.yaml` write so contributors who open the file understand what it is, how entries get added, how to remove them, how to review via `/tailtest:debt`, and the commit-to-git convention.
+- **Nested `SastConfig` and `ScaConfig`** in `src/tailtest/core/config/schema.py`. SAST gains a `ruleset: str` field; SCA gains a `use_epss: bool` field. Legacy `sast: true/false` and `sca: true/false` configs from Phase 1 still parse via field validators that coerce bool into the nested form. `__bool__` helpers preserve backward compatibility with call sites that do `if config.security.sast:`. Security defaults flipped from False to True (Phase 1 shipped them off because the scanners had not been built yet).
+- **Phase 2 dogfood fixture** at `internal-testing/fixtures/phase2-vuln-fixture/`. Minimal Python project seeded with a Stripe test key + `eval(user_input)` + `requests==2.0.0` for end-to-end scanner validation.
+- **Finding schema security metadata** populated by every scanner: `cwe_id`, `cvss_score`, `package_name`, `package_version`, `fixed_version`, `advisory_url`. Schema fields existed from Phase 1's forward-looking design; Phase 2 wires each scanner to populate them.
+- **245 new tests** across the security layer (608 total, was 363 at end of Phase 1). Coverage includes pure parsers, mocked subprocess paths, mocked httpx hydration, baseline regression, summary line format, manifest snapshot round-trip, HTML reporter render + atomic writes + XSS escaping, OSV alias dedup, CVSS prefix-stripping regex.
+
+### Fixed
+- **OSV severity-INFO bug** (Task 2.10a, alpha.2 unblocker). The `_parse_cvss_score_string` regex fallback was extracting `3.1` (the CVSS spec version) from vector strings like `CVSS:3.1/AV:N/AC:H/...` and treating it as the score. New `_CVSS_VERSION_PREFIX_RE` strips the prefix before any number-extraction. Combined with the lean-batch-response hydration step + the `database_specific.severity` text-label fallback, SCA findings now surface at proper CRITICAL/HIGH/MEDIUM/LOW severities. Live OSV dogfood validates: 9 lean findings -> 6 unique findings (3 PYSEC duplicates dropped) at MEDIUM/HIGH with CWE IDs populated.
+- **PostToolUse hook silent JSON failure** (Task 2.10 from parallel Level 2 dogfood). `_parse_stdin` was returning None on malformed JSON with no log line, making "hook crashed parsing input" and "hook not installed" indistinguishable. Now emits an INFO-level diagnostic per failure mode while keeping empty stdin silent (Claude Code regularly invokes hooks with no payload).
+
+### Infrastructure
+- 608 pytest tests passing + 1 skipped (was 363 at end of Phase 1). Ruff clean, pyright standard 0/0/0, gitleaks clean.
+- Phase 2 mid-phase audit (Task 2.5a) walked the hygiene checklist, caught zero regressions, kept the plan files in sync with reality.
+- Live OSV API integration validated end-to-end against the seeded fixture; first dogfood-caught bug (severity-INFO across the board) found and fixed in-session with 35 new regression tests.
+
 ## [0.1.0-alpha.1] - 2026-04-09
 
 ### Added
