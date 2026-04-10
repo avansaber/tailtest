@@ -208,7 +208,7 @@ class OSVLookup:
         # import-only projects -- OSV returns all known vulns for unversioned
         # queries, which is conservative but correct for manifest-free projects.
         packages = [
-            PackageRef(name=pypi_name, version="", ecosystem="PyPI")
+            PackageRef(name=pypi_name, version="", ecosystem="PyPI", source_spec="import-scan")
             for pypi_name in import_map.values()
         ]
 

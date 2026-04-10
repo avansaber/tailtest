@@ -34,7 +34,6 @@ from tailtest.core.scan.profile import (
 )
 from tailtest.hook.session_start import run as session_start_run
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -69,9 +68,7 @@ def _make_python_project(tmp_path: Path) -> None:
     """Write minimal Python project files so the scan does not produce an empty profile."""
     (tmp_path / "src").mkdir(exist_ok=True)
     (tmp_path / "src" / "app.py").write_text("def main(): pass\n")
-    (tmp_path / "pyproject.toml").write_text(
-        '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n'
-    )
+    (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\ntestpaths = ["tests"]\n')
 
 
 # ---------------------------------------------------------------------------
@@ -183,21 +180,24 @@ async def test_session_start_none_vibe_coded_uses_neutral_phrasing(tmp_path: Pat
 
 def _make_post_tool_use_payload(file_path: str) -> str:
     """Build a minimal PostToolUse payload for an Edit tool on file_path."""
-    return json.dumps({
-        "tool_name": "Edit",
-        "tool_input": {
-            "file_path": file_path,
-            "old_string": "pass",
-            "new_string": "def foo():\n    pass",
-        },
-        "session_id": "test-session",
-    })
+    return json.dumps(
+        {
+            "tool_name": "Edit",
+            "tool_input": {
+                "file_path": file_path,
+                "old_string": "pass",
+                "new_string": "def foo():\n    pass",
+            },
+            "session_id": "test-session",
+        }
+    )
 
 
 @pytest.mark.asyncio
 async def test_post_tool_use_vibe_coded_py_no_tests_shows_gen_offer(tmp_path: Path) -> None:
     """Vibe-coded + .py file with def + no tests ran -> gen offer in output."""
     import tailtest.hook.post_tool_use as ptu_module
+
     ptu_module._gen_offered.clear()
 
     # Create a minimal Python file with a function definition.
@@ -222,6 +222,7 @@ async def test_post_tool_use_vibe_coded_py_no_tests_shows_gen_offer(tmp_path: Pa
 
         # Runner returns 0 tests passed/failed (no tests ran)
         from tailtest.core.findings.schema import FindingBatch
+
         empty_batch = FindingBatch(run_id="r1", depth="standard", tests_passed=0, tests_failed=0)
         mock_runner = MagicMock()
         mock_runner.language = "python"
@@ -251,6 +252,7 @@ async def test_post_tool_use_vibe_coded_py_no_tests_shows_gen_offer(tmp_path: Pa
 async def test_post_tool_use_vibe_coded_py_with_tests_no_gen_offer(tmp_path: Path) -> None:
     """Vibe-coded + .py file + tests ran -> no gen offer."""
     import tailtest.hook.post_tool_use as ptu_module
+
     ptu_module._gen_offered.clear()
 
     src_file = tmp_path / "app.py"
@@ -272,6 +274,7 @@ async def test_post_tool_use_vibe_coded_py_with_tests_no_gen_offer(tmp_path: Pat
         mock_scanner_cls.return_value = mock_scanner
 
         from tailtest.core.findings.schema import FindingBatch
+
         # tests_passed=3 means tests ran
         batch_with_tests = FindingBatch(
             run_id="r2", depth="standard", tests_passed=3, tests_failed=0
@@ -303,6 +306,7 @@ async def test_post_tool_use_vibe_coded_py_with_tests_no_gen_offer(tmp_path: Pat
 async def test_post_tool_use_non_vibe_coded_no_gen_offer(tmp_path: Path) -> None:
     """Non-vibe-coded project -> no gen offer regardless of test count."""
     import tailtest.hook.post_tool_use as ptu_module
+
     ptu_module._gen_offered.clear()
 
     src_file = tmp_path / "app.py"
@@ -324,6 +328,7 @@ async def test_post_tool_use_non_vibe_coded_no_gen_offer(tmp_path: Path) -> None
         mock_scanner_cls.return_value = mock_scanner
 
         from tailtest.core.findings.schema import FindingBatch
+
         empty_batch = FindingBatch(run_id="r3", depth="standard", tests_passed=0, tests_failed=0)
         mock_runner = MagicMock()
         mock_runner.language = "python"
@@ -352,6 +357,7 @@ async def test_post_tool_use_non_vibe_coded_no_gen_offer(tmp_path: Path) -> None
 async def test_post_tool_use_gen_offer_fires_once_per_file(tmp_path: Path) -> None:
     """Gen offer fires at most once per file per session."""
     import tailtest.hook.post_tool_use as ptu_module
+
     ptu_module._gen_offered.clear()
 
     src_file = tmp_path / "app.py"
@@ -374,6 +380,7 @@ async def test_post_tool_use_gen_offer_fires_once_per_file(tmp_path: Path) -> No
             mock_scanner_cls.return_value = mock_scanner
 
             from tailtest.core.findings.schema import FindingBatch
+
             empty_batch = FindingBatch(
                 run_id="r4", depth="standard", tests_passed=0, tests_failed=0
             )
@@ -447,13 +454,15 @@ def test_engine_vibe_coded_add_test_promoted(tmp_path: Path) -> None:
     )
 
     engine = RecommendationEngine()
-    with patch.object(engine, "_rule_playwright", return_value=non_add_test_rec):
-        with patch.object(engine, "_rule_testcontainers", return_value=None):
-            with patch.object(engine, "_rule_db_fixtures", return_value=None):
-                with patch.object(engine, "_rule_enable_ai_checks", return_value=None):
-                    with patch.object(engine, "_rule_vibe_coder_test_gen", return_value=add_test_rec):
-                        with patch.object(engine, "_rule_sca_upgrade", return_value=None):
-                            results = engine.compute(profile)
+    with (
+        patch.object(engine, "_rule_playwright", return_value=non_add_test_rec),
+        patch.object(engine, "_rule_testcontainers", return_value=None),
+        patch.object(engine, "_rule_db_fixtures", return_value=None),
+        patch.object(engine, "_rule_enable_ai_checks", return_value=None),
+        patch.object(engine, "_rule_vibe_coder_test_gen", return_value=add_test_rec),
+        patch.object(engine, "_rule_sca_upgrade", return_value=None),
+    ):
+        results = engine.compute(profile)
 
     assert len(results) == 2
     # add_test should come first when vibe-coded
@@ -483,13 +492,15 @@ def test_engine_non_vibe_coded_standard_sort(tmp_path: Path) -> None:
     engine = RecommendationEngine()
     # With non-vibe-coded, rule order determines output order (both same priority).
     # _rule_playwright fires first -> non_add_test_rec comes first.
-    with patch.object(engine, "_rule_playwright", return_value=non_add_test_rec):
-        with patch.object(engine, "_rule_testcontainers", return_value=None):
-            with patch.object(engine, "_rule_db_fixtures", return_value=None):
-                with patch.object(engine, "_rule_enable_ai_checks", return_value=None):
-                    with patch.object(engine, "_rule_vibe_coder_test_gen", return_value=add_test_rec):
-                        with patch.object(engine, "_rule_sca_upgrade", return_value=None):
-                            results = engine.compute(profile)
+    with (
+        patch.object(engine, "_rule_playwright", return_value=non_add_test_rec),
+        patch.object(engine, "_rule_testcontainers", return_value=None),
+        patch.object(engine, "_rule_db_fixtures", return_value=None),
+        patch.object(engine, "_rule_enable_ai_checks", return_value=None),
+        patch.object(engine, "_rule_vibe_coder_test_gen", return_value=add_test_rec),
+        patch.object(engine, "_rule_sca_upgrade", return_value=None),
+    ):
+        results = engine.compute(profile)
 
     assert len(results) == 2
     # Standard sort: both high priority, stable insert order preserved

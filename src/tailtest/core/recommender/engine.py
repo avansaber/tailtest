@@ -1,4 +1,5 @@
 """Rules-based recommendation engine for tailtest opportunity detection."""
+
 from __future__ import annotations
 
 import logging
@@ -314,19 +315,14 @@ class RecommendationEngine:
 
             is_high_priority = priority in _HIGH_SCA_SEVERITIES
             looks_like_sca = (
-                "sca" in kind
-                or "vulnerab" in title
-                or "upgrade" in title
-                or "cve" in title
+                "sca" in kind or "vulnerab" in title or "upgrade" in title or "cve" in title
             )
             if is_high_priority and looks_like_sca:
                 return Recommendation(
                     kind=RecommendationKind.install_tool,
                     priority=RecommendationPriority.high,
                     title="Upgrade vulnerable dependencies",
-                    why=(
-                        "One or more dependencies have known high-severity vulnerabilities."
-                    ),
+                    why=("One or more dependencies have known high-severity vulnerabilities."),
                     next_step=(
                         "Run `python3 -m pip install --upgrade <package>` for each"
                         " flagged dependency. Check `.tailtest/reports/latest.html`"

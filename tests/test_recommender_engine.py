@@ -1,10 +1,9 @@
 """Tests for RecommendationEngine (Phase 3 Task 3.3)."""
+
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-
-import pytest
 
 from tailtest.core.recommendations import (
     Recommendation,
@@ -13,8 +12,8 @@ from tailtest.core.recommendations import (
 )
 from tailtest.core.recommender import RecommendationEngine
 from tailtest.core.scan.profile import (
-    AISurface,
     AIConfidence,
+    AISurface,
     DetectedFramework,
     DetectedInfrastructure,
     DetectedRunner,
@@ -22,7 +21,6 @@ from tailtest.core.scan.profile import (
     InfrastructureKind,
     ProjectProfile,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -440,8 +438,7 @@ def test_priority_sorting_high_before_medium_before_low(tmp_path: Path) -> None:
         RecommendationPriority.low: 2,
     }
     assert all(
-        _order[priorities[i]] <= _order[priorities[i + 1]]
-        for i in range(len(priorities) - 1)
+        _order[priorities[i]] <= _order[priorities[i + 1]] for i in range(len(priorities) - 1)
     ), f"Priorities out of order: {priorities}"
 
 
@@ -556,8 +553,7 @@ def test_merge_output_is_sorted_by_priority(tmp_path: Path) -> None:
         RecommendationPriority.low: 2,
     }
     assert all(
-        _order[priorities[i]] <= _order[priorities[i + 1]]
-        for i in range(len(priorities) - 1)
+        _order[priorities[i]] <= _order[priorities[i + 1]] for i in range(len(priorities) - 1)
     ), f"merge() output not sorted: {priorities}"
 
 

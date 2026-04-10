@@ -1,14 +1,27 @@
 """BFS test directory discovery for nested project layouts."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-
-_SKIP_DIRS = frozenset({
-    ".git", ".tox", ".venv", "venv", "env", ".env",
-    "__pycache__", "node_modules", ".mypy_cache", ".pytest_cache",
-    "dist", "build", ".build", "site-packages",
-})
+_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".tox",
+        ".venv",
+        "venv",
+        "env",
+        ".env",
+        "__pycache__",
+        "node_modules",
+        ".mypy_cache",
+        ".pytest_cache",
+        "dist",
+        "build",
+        ".build",
+        "site-packages",
+    }
+)
 
 
 def find_test_directories(root: str | Path, max_depth: int = 4) -> list[Path]:

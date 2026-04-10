@@ -1,12 +1,10 @@
 """Tests for import-based SCA discovery (Phase 3 Task 3.1)."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from tailtest.security.sca.imports import discover_imports
-
 
 # --- Single-file scenarios ---
 
@@ -30,9 +28,7 @@ def test_dotted_from_import_uses_top_level(tmp_path: Path) -> None:
 
 
 def test_stdlib_imports_excluded(tmp_path: Path) -> None:
-    (tmp_path / "module.py").write_text(
-        "import os\nimport sys\nimport json\nimport pathlib\n"
-    )
+    (tmp_path / "module.py").write_text("import os\nimport sys\nimport json\nimport pathlib\n")
     result = discover_imports(tmp_path)
     assert result == {}
 
@@ -45,9 +41,7 @@ def test_unknown_third_party_excluded(tmp_path: Path) -> None:
 
 
 def test_multiple_known_imports(tmp_path: Path) -> None:
-    (tmp_path / "app.py").write_text(
-        "import flask\nimport requests\nimport numpy\n"
-    )
+    (tmp_path / "app.py").write_text("import flask\nimport requests\nimport numpy\n")
     result = discover_imports(tmp_path)
     assert result.get("flask") == "Flask"
     assert result.get("requests") == "requests"

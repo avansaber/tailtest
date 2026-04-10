@@ -2,6 +2,7 @@
 
 All tests mock _call_claude to avoid real API calls.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,13 +12,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tailtest.core.assertions.llm_judge import JudgmentResult, LLMJudge
+from tailtest.core.assertions.llm_judge import LLMJudge
 from tailtest.hook.session_start import _reap_expired_judgments
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_judge(tmp_path: Path) -> LLMJudge:
     return LLMJudge(tmp_path)
@@ -30,6 +31,7 @@ def _raw_response(verdict: str, reasoning: str) -> str:
 # ---------------------------------------------------------------------------
 # check_faithfulness
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_faithfulness_pass(tmp_path: Path) -> None:
@@ -57,6 +59,7 @@ async def test_faithfulness_fail(tmp_path: Path) -> None:
 # check_pii_leakage
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_pii_leakage_pass(tmp_path: Path) -> None:
     judge = _make_judge(tmp_path)
@@ -81,6 +84,7 @@ async def test_pii_leakage_fail(tmp_path: Path) -> None:
 # check_tool_call_correctness
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_tool_call_correctness_uncertain(tmp_path: Path) -> None:
     judge = _make_judge(tmp_path)
@@ -96,6 +100,7 @@ async def test_tool_call_correctness_uncertain(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Cache hit: second call does not invoke LLM
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_cache_hit_no_second_llm_call(tmp_path: Path) -> None:
@@ -120,6 +125,7 @@ async def test_cache_hit_no_second_llm_call(tmp_path: Path) -> None:
 # Cache miss on expired file: LLM called again
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_cache_miss_on_expired_file(tmp_path: Path) -> None:
     judge = _make_judge(tmp_path)
@@ -136,6 +142,7 @@ async def test_cache_miss_on_expired_file(tmp_path: Path) -> None:
     for p in cache_dir.glob("*.json"):
         old_time = time.time() - 86401  # just over 24h
         import os
+
         os.utime(p, (old_time, old_time))
 
     # Second call should invoke LLM again because cache is expired
@@ -149,6 +156,7 @@ async def test_cache_miss_on_expired_file(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Cache miss when no file: LLM called, file written
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_cache_miss_no_file_calls_llm_and_writes(tmp_path: Path) -> None:
@@ -173,6 +181,7 @@ async def test_cache_miss_no_file_calls_llm_and_writes(tmp_path: Path) -> None:
 # LLM unavailable (FileNotFoundError) -> uncertain, does not raise
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_llm_unavailable_returns_uncertain(tmp_path: Path) -> None:
     judge = _make_judge(tmp_path)
@@ -192,6 +201,7 @@ async def test_llm_unavailable_returns_uncertain(tmp_path: Path) -> None:
 # LLM non-zero exit -> uncertain, does not raise
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_llm_nonzero_exit_returns_uncertain(tmp_path: Path) -> None:
     judge = _make_judge(tmp_path)
@@ -210,6 +220,7 @@ async def test_llm_nonzero_exit_returns_uncertain(tmp_path: Path) -> None:
 # Malformed JSON response -> uncertain with parse error in reasoning
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_malformed_json_response_returns_uncertain(tmp_path: Path) -> None:
     judge = _make_judge(tmp_path)
@@ -223,6 +234,7 @@ async def test_malformed_json_response_returns_uncertain(tmp_path: Path) -> None
 # ---------------------------------------------------------------------------
 # _reap_expired_judgments: expired files deleted, fresh files kept
 # ---------------------------------------------------------------------------
+
 
 def test_reap_expired_deletes_old_keeps_fresh(tmp_path: Path) -> None:
     import os
@@ -248,6 +260,7 @@ def test_reap_expired_deletes_old_keeps_fresh(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # _reap_expired_judgments: missing cache dir is not an error
 # ---------------------------------------------------------------------------
+
 
 def test_reap_missing_dir_is_not_an_error(tmp_path: Path) -> None:
     # Should not raise even if the judgments dir does not exist

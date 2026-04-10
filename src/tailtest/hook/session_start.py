@@ -162,10 +162,13 @@ async def run(
 
     # Structural change nudge: when structural files changed since the last
     # profile was saved, prompt the user to run a deep scan.
-    if structural_change and profile is not None and not _profile_is_empty(profile) and scan_status != "failed":
-        change_line = (
-            "tailtest: your project structure changed. Run /tailtest scan --deep to refresh the analysis."
-        )
+    if (
+        structural_change
+        and profile is not None
+        and not _profile_is_empty(profile)
+        and scan_status != "failed"
+    ):
+        change_line = "tailtest: your project structure changed. Run /tailtest scan --deep to refresh the analysis."
         if len(message.encode("utf-8")) < 1800:
             message = f"{message}\n{change_line}"
 
@@ -243,7 +246,7 @@ def _maybe_build_ai_offer(profile: Any, tailtest_dir: Path) -> str | None:
             " at thorough depth?\n"
             "  Run /tailtest accept-ai-checks to enable, or /tailtest dismiss-ai-checks"
             " to skip.\n"
-            "  These checks only run when scan_mode is set to \"thorough\" or above."
+            '  These checks only run when scan_mode is set to "thorough" or above.'
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("AI offer check failed: %s", exc)
@@ -267,9 +270,7 @@ def _build_rec_count_line(profile: Any, tailtest_dir: Path) -> str | None:
             return None
         count = len(high_active)
         noun = "recommendation" if count == 1 else "recommendations"
-        return (
-            f"tailtest: {count} high-priority {noun} -- run /tailtest to see them."
-        )
+        return f"tailtest: {count} high-priority {noun} -- run /tailtest to see them."
     except Exception as exc:  # noqa: BLE001
         logger.warning("SessionStart rec count failed: %s", exc)
         return None
