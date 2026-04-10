@@ -86,6 +86,7 @@ _IMPORT_TO_PYPI: dict[str, str] = {
     "openai": "openai",
     "anthropic": "anthropic",
     "langchain": "langchain",
+    "litellm": "litellm",
     "tiktoken": "tiktoken",
 }
 

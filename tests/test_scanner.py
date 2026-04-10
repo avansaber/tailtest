@@ -1,9 +1,11 @@
-"""Tests for ProjectScanner + detectors (Phase 1 Task 1.12a)."""
+"""Tests for ProjectScanner + detectors (Phase 1 Task 1.12a + Phase 3 Task 3.1)."""
 
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -16,6 +18,7 @@ from tailtest.core.scan import (
     ScanStatus,
     detectors,
 )
+from tailtest.core.scan.scanner import DeepScanResult, ScanRecommendation
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 FIXTURE_PYTHON_AI = FIXTURES / "scanner_python_ai"
@@ -343,6 +346,233 @@ def test_is_cache_fresh(tmp_path: Path) -> None:
     profile = scanner.scan_shallow()
     assert scanner.is_cache_fresh(profile) is True
 
-    # Modify the manifest — cache should invalidate
+    # Modify the manifest -- cache should invalidate
     (tmp_path / "pyproject.toml").write_text("[project]\nname='x2'\n")
     assert scanner.is_cache_fresh(profile) is False
+
+
+# ---------------------------------------------------------------------------
+# scan_deep() tests (Phase 3 Task 3.1)
+# ---------------------------------------------------------------------------
+
+_VALID_LLM_JSON = json.dumps({
+    "summary": "A demo agent that answers questions using the Anthropic SDK.",
+    "concerns": ["No tests found.", "No CI configuration detected."],
+    "recommendations": [
+        {
+            "kind": "add_test",
+            "priority": "high",
+            "title": "Add unit tests",
+            "why": "The project has no test coverage.",
+            "next_step": "Run `pytest --cov` and add test_*.py files.",
+        }
+    ],
+})
+
+_CLAUDE_JSON_ENVELOPE = json.dumps({
+    "type": "result",
+    "result": _VALID_LLM_JSON,
+    "total_cost_usd": 0.001,
+})
+
+
+def _make_mock_subprocess(stdout: bytes, returncode: int = 0):
+    """Return a coroutine that yields a mock subprocess result."""
+    mock_proc = AsyncMock()
+    mock_proc.returncode = returncode
+    mock_proc.communicate = AsyncMock(return_value=(stdout, b""))
+    return mock_proc
+
+
+@pytest.mark.asyncio
+async def test_scan_deep_valid_response(tmp_path: Path) -> None:
+    """Valid JSON response from the LLM populates DeepScanResult correctly."""
+    scanner = ProjectScanner(tmp_path)
+    mock_proc = _make_mock_subprocess(stdout=_CLAUDE_JSON_ENVELOPE.encode())
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        result = await scanner.scan_deep()
+
+    assert result is not None
+    assert isinstance(result, DeepScanResult)
+    assert "Anthropic SDK" in result.summary
+    assert len(result.concerns) == 2
+    assert len(result.recommendations) == 1
+    assert result.recommendations[0].kind == "add_test"
+    assert result.recommendations[0].priority == "high"
+    assert result.cached is False
+
+
+@pytest.mark.asyncio
+async def test_scan_deep_invalid_json_returns_none(tmp_path: Path, caplog) -> None:
+    """Non-JSON LLM response returns None and logs a warning."""
+    scanner = ProjectScanner(tmp_path)
+    bad_envelope = json.dumps({"type": "result", "result": "not json at all {{}}"})
+    mock_proc = _make_mock_subprocess(stdout=bad_envelope.encode())
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        import logging
+        with caplog.at_level(logging.WARNING, logger="tailtest.core.scan.scanner"):
+            result = await scanner.scan_deep()
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_scan_deep_llm_unavailable_returns_none(tmp_path: Path) -> None:
+    """FileNotFoundError (claude not on PATH) returns None without raising."""
+    scanner = ProjectScanner(tmp_path)
+
+    with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("claude")):
+        result = await scanner.scan_deep()
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_scan_deep_nonzero_exit_returns_none(tmp_path: Path) -> None:
+    """Non-zero exit code from the claude CLI returns None."""
+    scanner = ProjectScanner(tmp_path)
+    mock_proc = _make_mock_subprocess(stdout=b"", returncode=1)
+    mock_proc.communicate = AsyncMock(return_value=(b"", b"some error"))
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        result = await scanner.scan_deep()
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_scan_deep_cache_hit_skips_llm(tmp_path: Path) -> None:
+    """When a fresh cache file exists, the LLM is not called."""
+    scanner = ProjectScanner(tmp_path)
+    cache_dir = tmp_path / ".tailtest" / "cache"
+    cache_dir.mkdir(parents=True)
+
+    # Pre-populate a cache file with a recent mtime.
+    cached_data = {
+        "summary": "Cached summary.",
+        "concerns": ["Cached concern."],
+        "recommendations": [],
+        "content_hash": "abc123",
+    }
+    # We need to know what cache key the scanner will compute.
+    # Use the scanner's own method to compute it.
+    _, gathered = scanner._gather_context()
+    key = scanner._compute_deep_cache_key(gathered)
+    cache_file = cache_dir / f"deep_scan_{key[:16]}.json"
+    cache_file.write_text(json.dumps(cached_data), encoding="utf-8")
+
+    call_count = 0
+
+    async def mock_exec(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return _make_mock_subprocess(stdout=_CLAUDE_JSON_ENVELOPE.encode())
+
+    with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+        result = await scanner.scan_deep()
+
+    assert result is not None
+    assert result.summary == "Cached summary."
+    assert result.cached is True
+    assert call_count == 0, "LLM was called despite a valid cache hit"
+
+
+@pytest.mark.asyncio
+async def test_scan_deep_cache_miss_calls_llm(tmp_path: Path) -> None:
+    """When no cache file exists, the LLM is called and the result is cached."""
+    scanner = ProjectScanner(tmp_path)
+    mock_proc = _make_mock_subprocess(stdout=_CLAUDE_JSON_ENVELOPE.encode())
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        result = await scanner.scan_deep()
+
+    assert result is not None
+    assert result.cached is False
+
+    # Cache file should now exist.
+    cache_dir = tmp_path / ".tailtest" / "cache"
+    cache_files = list(cache_dir.glob("deep_scan_*.json"))
+    assert len(cache_files) == 1
+    cached = json.loads(cache_files[0].read_text())
+    assert cached["summary"] == result.summary
+
+
+@pytest.mark.asyncio
+async def test_scan_deep_force_bypasses_cache(tmp_path: Path) -> None:
+    """force=True causes the LLM to be called even when a valid cache exists."""
+    scanner = ProjectScanner(tmp_path)
+    cache_dir = tmp_path / ".tailtest" / "cache"
+    cache_dir.mkdir(parents=True)
+
+    cached_data = {
+        "summary": "Stale cached summary.",
+        "concerns": [],
+        "recommendations": [],
+        "content_hash": "stale",
+    }
+    _, gathered = scanner._gather_context()
+    key = scanner._compute_deep_cache_key(gathered)
+    cache_file = cache_dir / f"deep_scan_{key[:16]}.json"
+    cache_file.write_text(json.dumps(cached_data), encoding="utf-8")
+
+    mock_proc = _make_mock_subprocess(stdout=_CLAUDE_JSON_ENVELOPE.encode())
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        result = await scanner.scan_deep(force=True)
+
+    assert result is not None
+    # The forced call should return the fresh LLM result, not the cached one.
+    assert "Anthropic SDK" in result.summary
+    assert result.cached is False
+
+
+@pytest.mark.asyncio
+async def test_scan_deep_writes_scan_md(tmp_path: Path) -> None:
+    """scan_deep() writes .tailtest/scan.md on success."""
+    scanner = ProjectScanner(tmp_path)
+    mock_proc = _make_mock_subprocess(stdout=_CLAUDE_JSON_ENVELOPE.encode())
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        result = await scanner.scan_deep()
+
+    assert result is not None
+    scan_md = tmp_path / ".tailtest" / "scan.md"
+    assert scan_md.exists()
+    content = scan_md.read_text()
+    assert "# Project Deep Scan" in content
+    assert result.summary in content
+
+
+@pytest.mark.asyncio
+async def test_scan_deep_expired_cache_calls_llm(tmp_path: Path) -> None:
+    """A cache file older than 24 hours is ignored; LLM is called."""
+    scanner = ProjectScanner(tmp_path)
+    cache_dir = tmp_path / ".tailtest" / "cache"
+    cache_dir.mkdir(parents=True)
+
+    cached_data = {
+        "summary": "Old cached summary.",
+        "concerns": [],
+        "recommendations": [],
+        "content_hash": "old",
+    }
+    _, gathered = scanner._gather_context()
+    key = scanner._compute_deep_cache_key(gathered)
+    cache_file = cache_dir / f"deep_scan_{key[:16]}.json"
+    cache_file.write_text(json.dumps(cached_data), encoding="utf-8")
+
+    # Backdate the mtime by more than 24 hours.
+    old_mtime = time.time() - (25 * 3600)
+    import os
+    os.utime(cache_file, (old_mtime, old_mtime))
+
+    mock_proc = _make_mock_subprocess(stdout=_CLAUDE_JSON_ENVELOPE.encode())
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        result = await scanner.scan_deep()
+
+    assert result is not None
+    assert "Anthropic SDK" in result.summary
+    assert result.cached is False
