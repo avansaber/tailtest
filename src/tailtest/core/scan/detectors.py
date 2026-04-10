@@ -210,11 +210,22 @@ JS_FRAMEWORK_SIGNATURES: dict[str, tuple[str, str]] = {
 }
 
 
+RUST_FRAMEWORK_SIGNATURES: dict[str, tuple[str, str]] = {
+    "async-openai": ("async-openai", "agent"),
+    "anthropic": ("anthropic-rs", "agent"),
+    "llm": ("llm", "agent"),
+    "rig-core": ("rig", "agent"),
+    "openai": ("openai-rs", "agent"),
+    "langchain-rust": ("langchain-rust", "agent"),
+}
+
+
 def detect_frameworks(root: Path) -> list[DetectedFramework]:
     """Parse manifest files and return the matched frameworks."""
     results: list[DetectedFramework] = []
     results.extend(_detect_python_frameworks(root))
     results.extend(_detect_js_frameworks(root))
+    results.extend(_detect_rust_frameworks(root))
     return results
 
 
@@ -307,6 +318,58 @@ def _detect_js_frameworks(root: Path) -> list[DetectedFramework]:
     return results
 
 
+def _detect_rust_frameworks(root: Path) -> list[DetectedFramework]:
+    """Scan workspace and crate Cargo.toml files for AI-signal dependencies."""
+    # Collect all Cargo.toml files: root + any workspace members.
+    cargo_tomls: list[Path] = []
+    root_toml = root / "Cargo.toml"
+    if root_toml.exists():
+        cargo_tomls.append(root_toml)
+        try:
+            data = tomllib.loads(root_toml.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            data = {}
+        members = (data.get("workspace") or {}).get("members") or []
+        if isinstance(members, list):
+            for member in members:
+                member_toml = root / str(member) / "Cargo.toml"
+                if member_toml.exists() and member_toml not in cargo_tomls:
+                    cargo_tomls.append(member_toml)
+
+    results: list[DetectedFramework] = []
+    seen: set[str] = set()
+    for toml_path in cargo_tomls:
+        try:
+            data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            logger.debug("Failed to parse %s: %s", toml_path, exc)
+            continue
+
+        # Collect all dependency names from [dependencies] and [dev-dependencies].
+        dep_names: set[str] = set()
+        for section in ("dependencies", "dev-dependencies"):
+            section_data = data.get(section) or {}
+            if isinstance(section_data, dict):
+                dep_names.update(section_data.keys())
+
+        for dep_name in dep_names:
+            key = dep_name.lower().replace("_", "-")
+            if key in RUST_FRAMEWORK_SIGNATURES:
+                framework, category = RUST_FRAMEWORK_SIGNATURES[key]
+                if framework in seen:
+                    continue
+                seen.add(framework)
+                results.append(
+                    DetectedFramework(
+                        name=framework,
+                        confidence=AIConfidence.HIGH,
+                        source=str(toml_path.name),
+                        category=category,
+                    )
+                )
+    return results
+
+
 # --- Runner detection -----------------------------------------------------
 
 
@@ -355,6 +418,21 @@ def detect_runners(root: Path, languages: dict[str, int]) -> list[DetectedRunner
                     language="python",
                     config_file=None,
                     tests_dir=tests_dir,
+                )
+            )
+
+    # Rust → cargo test
+    if "rust" in languages:
+        cargo_toml = root / "Cargo.toml"
+        if cargo_toml.exists():
+            import shutil as _shutil
+
+            cargo_available = _shutil.which("cargo") is not None
+            runners.append(
+                DetectedRunner(
+                    name="cargo",
+                    language="rust",
+                    config_file=cargo_toml if cargo_available else None,
                 )
             )
 
