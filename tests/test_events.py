@@ -139,3 +139,30 @@ def test_event_writer_read_all_skips_blank_lines(tmp_path: Path) -> None:
 
     events = writer.read_all()
     assert len(events) == 2
+
+
+def test_event_writer_concurrent_writes_do_not_corrupt(tmp_path: Path) -> None:
+    """Multiple threads appending to the same file must not corrupt it."""
+    import threading
+
+    tailtest_dir = tmp_path / ".tailtest"
+    results: list[Exception] = []
+
+    def _write(n: int) -> None:
+        try:
+            writer = EventWriter(tailtest_dir)
+            for _ in range(n):
+                writer.append(_make_event())
+        except Exception as exc:
+            results.append(exc)
+
+    threads = [threading.Thread(target=_write, args=(10,)) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not results, f"Writer threads raised: {results}"
+    writer = EventWriter(tailtest_dir)
+    events = writer.read_all()
+    assert len(events) == 50  # 5 threads × 10 events each
