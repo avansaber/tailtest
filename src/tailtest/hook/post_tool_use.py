@@ -44,6 +44,7 @@ logic in ``run``; SIGINT behavior is tested via a subprocess test.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import time
@@ -59,6 +60,7 @@ import tailtest.core.runner.javascript  # noqa: F401, E402
 import tailtest.core.runner.python  # noqa: F401, E402
 from tailtest.core.baseline import BaselineManager
 from tailtest.core.config import Config, ConfigLoader, DepthMode
+from tailtest.core.events import Event, EventKind, EventWriter
 from tailtest.core.findings.schema import Finding, FindingBatch
 from tailtest.core.runner import BaseRunner, RunnerNotAvailable, get_default_registry
 from tailtest.core.scan import ProjectScanner
@@ -169,6 +171,8 @@ async def run(
     if payload is None:
         return HookResult(None, "stdin is not valid JSON")
 
+    session_id = str(payload.get("session_id") or "unknown")
+
     tool_name = payload.get("tool_name") or ""
     if tool_name not in _SUPPORTED_TOOLS:
         return HookResult(None, f"unsupported tool: {tool_name}")
@@ -196,6 +200,16 @@ async def run(
 
     if config.depth.value == "off":
         return HookResult(None, "depth is off")
+
+    tailtest_dir = root / ".tailtest"
+    with contextlib.suppress(Exception):
+        EventWriter(tailtest_dir).append(
+            Event(
+                kind=EventKind.EDIT,
+                session_id=session_id,
+                payload={"files": [str(f) for f in changed_files], "tool": tool_name},
+            )
+        )
 
     # Lightweight manifest rescan (audit gap #2). Only runs on writes
     # that touched a known manifest file. The result goes to
@@ -319,6 +333,21 @@ async def run(
     )
 
     _persist_report(root, batch)
+
+    with contextlib.suppress(Exception):
+        EventWriter(tailtest_dir).append(
+            Event(
+                kind=EventKind.RUN,
+                session_id=session_id,
+                payload={
+                    "run_id": run_id,
+                    "tests_passed": batch.tests_passed,
+                    "tests_failed": batch.tests_failed,
+                    "tests_skipped": batch.tests_skipped,
+                    "new_findings": len(batch.findings),
+                },
+            )
+        )
 
     # Auto-offer test generation (Phase 1 Task 1.5a). Runs after the
     # test batch is finalized but before the context is formatted so

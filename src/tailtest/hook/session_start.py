@@ -32,6 +32,7 @@ cache, a call goes here.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import time
@@ -40,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from tailtest.core.config import ConfigLoader
+from tailtest.core.events import Event, EventKind, EventWriter
 from tailtest.core.recommendations.store import DismissalStore
 from tailtest.core.recommender.engine import RecommendationEngine
 from tailtest.core.scan import ProjectScanner
@@ -126,6 +128,21 @@ async def run(
     # offer debouncing does not carry offers from a prior session.
     new_state = SessionState(session_id=session_id or "unknown")
     save_session_state(tailtest_dir, new_state)
+
+    with contextlib.suppress(Exception):
+        EventWriter(tailtest_dir).append(
+            Event(
+                kind=EventKind.SESSION_START,
+                session_id=session_id or "unknown",
+                payload={
+                    "language": getattr(profile, "primary_language", None) if profile else None,
+                    "ai_surface": getattr(profile, "ai_surface", None) if profile else None,
+                    "likely_vibe_coded": getattr(profile, "likely_vibe_coded", False)
+                    if profile
+                    else False,
+                },
+            )
+        )
 
     # Build the one-line additionalContext envelope.
     if scan_status == "failed":
