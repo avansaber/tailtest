@@ -22,7 +22,7 @@ def test_package_imports() -> None:
     """The top-level package must import without errors."""
     import tailtest
 
-    assert tailtest.__version__ == "0.1.0b1"
+    assert tailtest.__version__ == "0.1.0b2"
 
 
 def test_version_matches_pyproject() -> None:
