@@ -18,7 +18,7 @@ from tailtest.core.scan import (
     ScanStatus,
     detectors,
 )
-from tailtest.core.scan.scanner import DeepScanResult, ScanRecommendation
+from tailtest.core.scan.scanner import DeepScanResult
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 FIXTURE_PYTHON_AI = FIXTURES / "scanner_python_ai"
