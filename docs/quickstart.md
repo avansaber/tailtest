@@ -4,14 +4,18 @@ Get tailtest running in your project in 5 minutes.
 
 This guide assumes you already have [Claude Code](https://claude.com/claude-code) installed and a Python or JavaScript/TypeScript project ready to work in. If you don't have a project, any pytest or vitest project will do; tailtest works on existing projects without modification.
 
-## 1. Install the plugin
+## 1. Install the Python package + plugin
 
 ```bash
+# The hook needs the tailtest Python package on PATH
+python3 -m pip install tailtester
+
+# Then install the Claude Code plugin from the GitHub marketplace
 claude plugin marketplace add avansaber/tailtest
-claude plugin install tailtest@avansaber/tailtest
+claude plugin install tailtest@avansaber-tailtest
 ```
 
-The first command registers the GitHub-hosted marketplace; the second installs the plugin into your Claude Code user scope. Both are reversible (`claude plugin uninstall tailtest@avansaber/tailtest`).
+The `pip install` step puts the `tailtest` engine on your PATH so the hook shim can import it. The `marketplace add` + `plugin install` steps register the hooks and skills into Claude Code. Both are reversible (`python3 -m pip uninstall tailtester` + `claude plugin uninstall tailtest@avansaber-tailtest`).
 
 If you hit install errors on macOS Homebrew Python or you're upgrading from the v1 `tailtester` package, see [install.md](install.md) for the full details.
 
