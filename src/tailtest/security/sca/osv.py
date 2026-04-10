@@ -41,6 +41,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -90,6 +91,7 @@ class OSVVulnerability:
     affected_version: str = ""
     fixed_version: str = ""  # concrete version where the vuln was fixed
     aliases: list[str] = field(default_factory=list)
+    cwe_id: str = ""  # Phase 2 Task 2.10a: pulled from database_specific.cwe_ids
 
 
 class OSVLookup:
@@ -200,7 +202,15 @@ class OSVLookup:
         return all_results
 
     async def _send_one_batch(self, batch: list[PackageRef]) -> list[list[OSVVulnerability]]:
-        """Send a single OSV /v1/querybatch request and parse the response."""
+        """Send a single OSV /v1/querybatch request and parse the response.
+
+        Phase 2 Task 2.10a: after the lean batch parse, walks each
+        unique vuln id through ``_hydrate_vuln`` to fetch the full
+        details (severity, cwe_ids, references, affected ranges)
+        from ``/v1/vulns/<id>``. The client is held open across
+        the hydration loop so we don't pay an extra connection
+        setup per vuln.
+        """
         queries = [
             {
                 "package": {"name": ref.name, "ecosystem": ref.ecosystem},
@@ -223,21 +233,177 @@ class OSVLookup:
                 raise OSVNotAvailable(f"OSV request timed out: {exc}") from exc
             except httpx.HTTPError as exc:
                 raise OSVNotAvailable(f"OSV HTTP error: {exc}") from exc
+
+            if response.status_code != 200:
+                raise OSVNotAvailable(
+                    f"OSV returned status {response.status_code}: {response.text[:200]}"
+                )
+
+            try:
+                data = response.json()
+            except json.JSONDecodeError as exc:
+                raise OSVNotAvailable(f"OSV returned non-JSON response: {exc}") from exc
+
+            lean_results = parse_osv_batch_response(data, batch_size=len(batch))
+
+            # Hydrate each unique vuln so the SCA findings carry
+            # severity, cwe_id, and the full reference list. Without
+            # this step every finding would land at INFO because the
+            # batch endpoint returns lean entries.
+            return await self._hydrate_results(lean_results, client)
         finally:
             if owned_client:
                 await client.aclose()
 
+    # --- Hydration (Phase 2 Task 2.10a) -----------------------------
+
+    async def _hydrate_results(
+        self,
+        lean_results: list[list[OSVVulnerability]],
+        client: httpx.AsyncClient,
+    ) -> list[list[OSVVulnerability]]:
+        """Replace lean vulns with full details from ``/v1/vulns/<id>``.
+
+        The OSV ``/v1/querybatch`` endpoint returns lean entries
+        (id + modified only). To get severity, cwe_ids, the full
+        reference list, and the affected ranges with both
+        introduced and fixed events, we follow up with one
+        ``/v1/vulns/<id>`` call per unique vuln. Cached on disk
+        at ``.tailtest/cache/osv-vulns/<sha>.json`` so repeat
+        scans skip the API entirely.
+
+        After hydration, runs each per-batch list through
+        :func:`_dedup_vulns_by_alias` so the user does not see
+        the same vulnerability under multiple ids (e.g.,
+        ``GHSA-cfj3-7x9c-4p3h`` AND ``PYSEC-2014-13`` for
+        CVE-2014-1829). The OSV batch endpoint typically returns
+        more authoritative entries (GHSA, with severity + CWE)
+        ahead of less authoritative ones (PYSEC), so a "first
+        wins" dedup keeps the richer entry.
+
+        On any per-vuln failure (network error, non-200, parse
+        error) we keep the lean entry as a fallback so the user
+        still sees the finding even when hydration is degraded.
+        Hydration is best-effort: it should never break the hot
+        loop.
+        """
+        # Collect unique vuln ids in stable order so the test
+        # asserts on call shape are deterministic.
+        unique_ids: dict[str, OSVVulnerability] = {}
+        for vuln_list in lean_results:
+            for vuln in vuln_list:
+                if vuln.vuln_id and vuln.vuln_id not in unique_ids:
+                    unique_ids[vuln.vuln_id] = vuln
+
+        if not unique_ids:
+            return lean_results
+
+        hydrated: dict[str, OSVVulnerability] = {}
+        for vuln_id, lean in unique_ids.items():
+            full = await self._hydrate_vuln(vuln_id, client)
+            hydrated[vuln_id] = full if full is not None else lean
+
+        # Substitute hydrated entries back into the per-batch
+        # structure so the caller's order matches the original
+        # ref list, then dedup by alias chain.
+        final: list[list[OSVVulnerability]] = []
+        for vuln_list in lean_results:
+            replaced = [hydrated.get(v.vuln_id, v) for v in vuln_list]
+            final.append(_dedup_vulns_by_alias(replaced))
+        return final
+
+    async def _hydrate_vuln(
+        self,
+        vuln_id: str,
+        client: httpx.AsyncClient,
+    ) -> OSVVulnerability | None:
+        """Fetch ``/v1/vulns/<id>`` and parse into a full ``OSVVulnerability``.
+
+        Cache hit returns immediately. Cache miss hits the API,
+        saves the raw response, and parses it. Returns None on
+        any failure so the caller falls back to the lean entry.
+
+        We cache the RAW API response (not the deserialized
+        ``OSVVulnerability``) on purpose: a future improvement to
+        ``_osv_vuln_from_dict`` (e.g., extracting more fields)
+        will automatically apply to existing cache entries on
+        next read, with no migration step.
+        """
+        if self.enable_cache:
+            cached = self._load_cached_vuln_raw(vuln_id)
+            if cached is not None:
+                return _osv_vuln_from_dict(cached)
+
+        url = f"{OSV_VULNS_URL}/{vuln_id}"
+        try:
+            response = await client.get(url)
+        except Exception as exc:  # noqa: BLE001
+            # Hydration is best-effort. ANY exception (httpx
+            # network error, mock client missing get(), etc.)
+            # falls back to the lean entry so the hot loop never
+            # breaks because the per-vuln lookup failed.
+            logger.debug("OSV hydrate failed for %s: %s", vuln_id, exc)
+            return None
+
         if response.status_code != 200:
-            raise OSVNotAvailable(
-                f"OSV returned status {response.status_code}: {response.text[:200]}"
+            logger.debug(
+                "OSV hydrate non-200 for %s: %d",
+                vuln_id,
+                response.status_code,
             )
+            return None
 
         try:
             data = response.json()
-        except json.JSONDecodeError as exc:
-            raise OSVNotAvailable(f"OSV returned non-JSON response: {exc}") from exc
+        except json.JSONDecodeError:
+            logger.debug("OSV hydrate non-JSON for %s", vuln_id)
+            return None
 
-        return parse_osv_batch_response(data, batch_size=len(batch))
+        if not isinstance(data, dict):
+            return None
+
+        if self.enable_cache:
+            self._save_cached_vuln_raw(vuln_id, data)
+
+        return _osv_vuln_from_dict(data)
+
+    def _vuln_cache_dir(self) -> Path:
+        return self.project_root / ".tailtest" / "cache" / "osv-vulns"
+
+    def _vuln_cache_file_for(self, vuln_id: str) -> Path:
+        digest = hashlib.sha256(vuln_id.encode("utf-8")).hexdigest()[:32]
+        return self._vuln_cache_dir() / f"{digest}.json"
+
+    def _load_cached_vuln_raw(self, vuln_id: str) -> dict[str, Any] | None:
+        """Return the raw cached OSV API response or None on miss."""
+        path = self._vuln_cache_file_for(vuln_id)
+        if not path.exists():
+            return None
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        if (time.time() - stat.st_mtime) > _CACHE_TTL_SECONDS:
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        return data
+
+    def _save_cached_vuln_raw(self, vuln_id: str, raw: dict[str, Any]) -> None:
+        """Persist the raw OSV API response. Swallow filesystem errors."""
+        try:
+            cache_dir = self._vuln_cache_dir()
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            path = self._vuln_cache_file_for(vuln_id)
+            tmp = path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(raw, sort_keys=True), encoding="utf-8")
+            tmp.replace(path)
+        except OSError as exc:
+            logger.debug("OSV vuln cache write failed: %s", exc)
 
     # --- Cache ------------------------------------------------------
 
@@ -341,6 +507,7 @@ class OSVLookup:
             doc_link=doc_link,
             claude_hint=claude_hint,
             cvss_score=cvss_value,
+            cwe_id=vuln.cwe_id or None,
             package_name=ref.name,
             package_version=ref.version or None,
             fixed_version=vuln.fixed_version or None,
@@ -408,7 +575,16 @@ def parse_osv_batch_response(data: Any, *, batch_size: int) -> list[list[OSVVuln
 
 
 def _osv_vuln_from_dict(raw: dict[str, Any]) -> OSVVulnerability | None:
-    """Build an ``OSVVulnerability`` from a raw OSV JSON dict."""
+    """Build an ``OSVVulnerability`` from a raw OSV JSON dict.
+
+    Phase 2 Task 2.10a: when the top-level ``severity`` field is
+    missing or carries only a vector with no parseable numeric
+    score, fall back to the GHSA ``database_specific.severity``
+    text label and pull the canonical CWE from
+    ``database_specific.cwe_ids``. The dogfood against
+    ``requests==2.0.0`` proved that without these fallbacks every
+    SCA finding mapped to severity INFO and sorted to the bottom.
+    """
     vuln_id = raw.get("id")
     if not isinstance(vuln_id, str) or not vuln_id:
         return None
@@ -417,6 +593,28 @@ def _osv_vuln_from_dict(raw: dict[str, Any]) -> OSVVulnerability | None:
     details = str(raw.get("details") or "")
 
     cvss_score = _extract_highest_cvss_score(raw.get("severity"))
+
+    # Phase 2 Task 2.10a: GHSA text-label fallback. Many advisories
+    # carry a CVSS metric vector with no numeric score, or no CVSS
+    # at all, but always include database_specific.severity as
+    # LOW/MODERATE/HIGH/CRITICAL.
+    database_specific = raw.get("database_specific")
+    if not isinstance(database_specific, dict):
+        database_specific = {}
+    if cvss_score == 0.0:
+        cvss_score = _text_severity_to_cvss(database_specific.get("severity"))
+
+    # Pull the canonical CWE from database_specific.cwe_ids when
+    # present. GHSA reliably populates this for vulnerabilities
+    # tracked against a CWE; we keep only the first match so the
+    # downstream Finding's cwe_id stays a single canonical value.
+    cwe_id = ""
+    raw_cwe_ids = database_specific.get("cwe_ids")
+    if isinstance(raw_cwe_ids, list):
+        for entry in raw_cwe_ids:
+            if isinstance(entry, str) and entry.startswith("CWE-"):
+                cwe_id = entry
+                break
 
     references: list[str] = []
     raw_refs = raw.get("references")
@@ -474,11 +672,20 @@ def _osv_vuln_from_dict(raw: dict[str, Any]) -> OSVVulnerability | None:
         affected_version=affected_version,
         fixed_version=fixed_version,
         aliases=aliases,
+        cwe_id=cwe_id,
     )
 
 
 def _osv_vuln_to_dict(vuln: OSVVulnerability) -> dict[str, Any]:
-    """Serialize a vulnerability for the on-disk cache."""
+    """Serialize a vulnerability for the on-disk response cache.
+
+    Note: this serializer is for the manifest-snapshot-keyed
+    response cache (``.tailtest/cache/osv/<sha>.json``), which
+    holds the deserialized OSVVulnerability shape. The per-vuln
+    hydration cache (``.tailtest/cache/osv-vulns/<sha>.json``)
+    stores the raw OSV API response instead, so a future parser
+    improvement automatically applies to existing cache entries.
+    """
     return {
         "id": vuln.vuln_id,
         "summary": vuln.summary,
@@ -489,6 +696,7 @@ def _osv_vuln_to_dict(vuln: OSVVulnerability) -> dict[str, Any]:
         "affected_version": vuln.affected_version,
         "fixed_version": vuln.fixed_version,
         "aliases": list(vuln.aliases),
+        "cwe_id": vuln.cwe_id,
     }
 
 
@@ -529,6 +737,7 @@ def _osv_vuln_from_cache_dict(raw: dict[str, Any]) -> OSVVulnerability | None:
         affected_version=str(raw.get("affected_version") or ""),
         fixed_version=str(raw.get("fixed_version") or ""),
         aliases=aliases,
+        cwe_id=str(raw.get("cwe_id") or ""),
     )
 
 
@@ -563,12 +772,30 @@ def _extract_highest_cvss_score(severity_field: Any) -> float:
     return highest
 
 
+# Phase 2 Task 2.10a: pre-compiled to skip the leading `CVSS:N.N/`
+# version prefix when scanning a vector string for the score. Without
+# this, the regex fallback below would mistake the CVSS spec version
+# (e.g., 3.1) for the actual score and produce a wildly wrong
+# severity. The dogfood fixture caught the bug end-to-end.
+_CVSS_VERSION_PREFIX_RE = re.compile(r"^CVSS:\d+\.\d+/")
+_CVSS_FLOAT_RE = re.compile(r"(\d+\.\d+)")
+
+
 def _parse_cvss_score_string(score_str: str) -> float:
     """Pull a floating-point score out of a CVSS string.
 
-    Handles both plain numeric strings (`"7.5"`) and vector
-    strings (`"CVSS:3.1/AV:N/AC:L/.../7.5"`). Returns 0.0 when no
-    parseable score is present.
+    Handles both plain numeric strings (``"7.5"``) and vector
+    strings (``"CVSS:3.1/AV:N/AC:L/.../7.5"``). Returns 0.0 when
+    no parseable score is present.
+
+    Phase 2 Task 2.10a: the leading ``CVSS:N.N/`` version prefix
+    is stripped before any number-extraction so the regex
+    fallback does not mistake the CVSS spec version (e.g.,
+    ``3.1``) for the score. Many GHSA advisories carry only the
+    metric vector with no trailing numeric score; for those the
+    function correctly returns 0.0 and the caller falls back to
+    the ``database_specific.severity`` text label via
+    :func:`_text_severity_to_cvss`.
     """
     text = score_str.strip()
     if not text:
@@ -580,25 +807,100 @@ def _parse_cvss_score_string(score_str: str) -> float:
     except ValueError:
         pass
 
-    # Vector string: find the last `/` and try to parse what
-    # follows as a float, plus fall back to any number in the
-    # string.
-    if "/" in text:
-        tail = text.rsplit("/", 1)[-1]
+    # Strip the `CVSS:N.N/` prefix so we don't return the version.
+    prefix_match = _CVSS_VERSION_PREFIX_RE.match(text)
+    text_without_prefix = text[prefix_match.end() :] if prefix_match else text
+
+    # Vector string with trailing score: try to parse what
+    # follows the last `/` as a float.
+    if "/" in text_without_prefix:
+        tail = text_without_prefix.rsplit("/", 1)[-1]
         try:
             return float(tail)
         except ValueError:
             pass
 
-    import re
-
-    matches = re.findall(r"(\d+\.\d+)", text)
+    # Last-resort fallback: extract any decimal number from the
+    # prefix-less string and return the maximum.
+    matches = _CVSS_FLOAT_RE.findall(text_without_prefix)
     if matches:
         try:
             return max(float(m) for m in matches)
         except ValueError:
             return 0.0
     return 0.0
+
+
+def _dedup_vulns_by_alias(vulns: list[OSVVulnerability]) -> list[OSVVulnerability]:
+    """Drop later vulns whose id appears in an earlier vuln's aliases.
+
+    OSV often returns the same vulnerability under multiple ids:
+    ``GHSA-cfj3-7x9c-4p3h``, ``PYSEC-2014-13``, and
+    ``CVE-2014-1829`` all describe the same finding. Reporting
+    all three to the user is noise.
+
+    First-occurrence wins because the OSV batch endpoint
+    typically lists more authoritative entries (GHSA, with
+    severity + CWE) ahead of less authoritative ones (PYSEC,
+    which typically lacks both). The dedup walks the list once
+    in input order: each vuln gets added to the result, and
+    every id in its aliases is recorded so a later duplicate
+    can be skipped.
+
+    Phase 2 Task 2.10a added this because the dogfood against
+    ``requests==2.0.0`` produced 9 findings for what is really
+    6 unique vulnerabilities (3 PYSEC duplicates of GHSAs).
+    Without dedup the user sees the same advisory three times.
+    """
+    seen: set[str] = set()
+    deduped: list[OSVVulnerability] = []
+    for vuln in vulns:
+        if not vuln.vuln_id:
+            continue
+        if vuln.vuln_id in seen:
+            continue
+        deduped.append(vuln)
+        seen.add(vuln.vuln_id)
+        for alias in vuln.aliases:
+            if alias:
+                seen.add(alias)
+    return deduped
+
+
+def _text_severity_to_cvss(text: Any) -> float:
+    """Map a GHSA ``database_specific.severity`` label to a CVSS score.
+
+    GHSA advisories include a text severity label
+    (``LOW``/``MODERATE``/``HIGH``/``CRITICAL``) on every entry,
+    even when the OSV ``severity`` field is missing or carries a
+    metric-vector-without-numeric-score. We map each label to a
+    score in the middle of its band so the existing
+    :func:`_cvss_to_unified_severity` thresholds map to the
+    correct unified severity:
+
+    - ``CRITICAL`` -> 9.5  (``>= 9.0`` -> CRITICAL)
+    - ``HIGH``     -> 7.5  (``>= 7.0`` -> HIGH)
+    - ``MODERATE`` -> 5.0  (``>= 4.0`` -> MEDIUM)
+    - ``LOW``      -> 2.0  (``> 0.0``  -> LOW)
+    - anything else -> 0.0 (-> INFO)
+
+    Phase 2 Task 2.10a added this fallback because the dogfood
+    against ``requests==2.0.0`` showed that every GHSA advisory
+    in the response either had no ``severity`` field at all or a
+    vector string with no numeric score. Without the text-label
+    fallback every SCA finding would map to severity INFO and
+    sort to the bottom of every report.
+    """
+    if not isinstance(text, str):
+        return 0.0
+    upper = text.strip().upper()
+    return {
+        "CRITICAL": 9.5,
+        "HIGH": 7.5,
+        "MODERATE": 5.0,
+        "MEDIUM": 5.0,  # alternate spelling some tools use
+        "LOW": 2.0,
+    }.get(upper, 0.0)
 
 
 def _cvss_to_unified_severity(score: float) -> Severity:

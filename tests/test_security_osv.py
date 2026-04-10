@@ -578,12 +578,94 @@ def test_osv_vuln_from_dict_missing_fields_uses_defaults() -> None:
     assert vuln.cvss_score == 0.0
     assert vuln.references == []
     assert vuln.aliases == []
+    assert vuln.cwe_id == ""
 
 
 def test_osv_vuln_from_dict_rejects_missing_id() -> None:
     assert _osv_vuln_from_dict({"summary": "no id"}) is None
     assert _osv_vuln_from_dict({"id": ""}) is None
     assert _osv_vuln_from_dict({"id": 42}) is None  # type: ignore[dict-item]
+
+
+def test_osv_vuln_from_dict_text_severity_fallback() -> None:
+    """Phase 2 Task 2.10a: when CVSS score is 0, fall back to
+    database_specific.severity text label.
+    """
+    raw = {
+        "id": "GHSA-text-fallback",
+        "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N"}],
+        "database_specific": {"severity": "HIGH"},
+    }
+    vuln = _osv_vuln_from_dict(raw)
+    assert vuln is not None
+    # CVSS vector returned 0.0 (no trailing score), so the text
+    # fallback kicks in and HIGH maps to a score in the >= 7.0 band.
+    assert vuln.cvss_score >= 7.0
+    assert _cvss_to_unified_severity(vuln.cvss_score) == Severity.HIGH
+
+
+def test_osv_vuln_from_dict_text_severity_only() -> None:
+    """When OSV has no `severity` field at all, text label still
+    drives the score (the GHSA-652x-xj99-gmcc shape from the
+    real API)."""
+    raw = {
+        "id": "GHSA-no-cvss",
+        "summary": "vuln with no CVSS",
+        "database_specific": {"severity": "MODERATE"},
+    }
+    vuln = _osv_vuln_from_dict(raw)
+    assert vuln is not None
+    assert _cvss_to_unified_severity(vuln.cvss_score) == Severity.MEDIUM
+
+
+def test_osv_vuln_from_dict_extracts_cwe_id() -> None:
+    """Phase 2 Task 2.10a: cwe_id pulled from database_specific.cwe_ids."""
+    raw = {
+        "id": "GHSA-with-cwe",
+        "database_specific": {
+            "severity": "MODERATE",
+            "cwe_ids": ["CWE-200", "CWE-522"],
+        },
+    }
+    vuln = _osv_vuln_from_dict(raw)
+    assert vuln is not None
+    # First CWE wins.
+    assert vuln.cwe_id == "CWE-200"
+
+
+def test_osv_vuln_from_dict_cwe_id_empty_when_no_database_specific() -> None:
+    raw = {"id": "GHSA-no-cwe"}
+    vuln = _osv_vuln_from_dict(raw)
+    assert vuln is not None
+    assert vuln.cwe_id == ""
+
+
+def test_osv_vuln_from_dict_skips_non_cwe_strings_in_cwe_ids() -> None:
+    """Some advisories include non-CWE entries; skip them."""
+    raw = {
+        "id": "GHSA-mixed-cwe",
+        "database_specific": {
+            "cwe_ids": ["just a description", "CWE-79", "more text"],
+        },
+    }
+    vuln = _osv_vuln_from_dict(raw)
+    assert vuln is not None
+    assert vuln.cwe_id == "CWE-79"
+
+
+def test_osv_vuln_from_dict_cvss_takes_precedence_over_text() -> None:
+    """When the CVSS score IS parseable, it takes precedence over
+    the text label so a real CVSS rating overrides a coarse
+    text label."""
+    raw = {
+        "id": "GHSA-cvss-wins",
+        "severity": [{"type": "CVSS_V3", "score": "9.8"}],
+        "database_specific": {"severity": "LOW"},  # would map to ~2.0
+    }
+    vuln = _osv_vuln_from_dict(raw)
+    assert vuln is not None
+    assert vuln.cvss_score == 9.8
+    assert _cvss_to_unified_severity(vuln.cvss_score) == Severity.CRITICAL
 
 
 # --- CVSS score extraction ---------------------------------------------
@@ -649,6 +731,95 @@ def test_parse_cvss_empty_returns_zero() -> None:
 def test_parse_cvss_no_number_returns_zero() -> None:
     assert _parse_cvss_score_string("unknown") == 0.0
     assert _parse_cvss_score_string("N/A") == 0.0
+
+
+def test_parse_cvss_skips_cvss_version_prefix() -> None:
+    """Phase 2 Task 2.10a regression: a vector with no trailing
+    score must NOT return the CVSS spec version (e.g., 3.1) as
+    the score. Many GHSA advisories ship vectors that encode
+    metrics without a numeric score; for those the function must
+    correctly return 0.0 so the caller falls back to the text
+    severity label.
+    """
+    # The dogfood-caught case: full vector, no trailing score.
+    score = _parse_cvss_score_string("CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N")
+    assert score == 0.0, f"expected 0.0, got {score} (regression: returning CVSS version)"
+
+
+def test_parse_cvss_vector_with_trailing_score_after_prefix() -> None:
+    """Vector that DOES include a trailing score should still parse it."""
+    score = _parse_cvss_score_string("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/9.8")
+    assert score == 9.8
+
+
+def test_parse_cvss_v2_prefix_also_stripped() -> None:
+    """CVSS:2.0 vectors get the same treatment as CVSS:3.x."""
+    assert _parse_cvss_score_string("CVSS:2.0/AV:N/AC:L/Au:N/C:P/I:P/A:P") == 0.0
+
+
+def test_parse_cvss_plain_decimal_without_prefix_unchanged() -> None:
+    """Plain decimals should still parse via the float() shortcut."""
+    assert _parse_cvss_score_string("9.8") == 9.8
+    assert _parse_cvss_score_string("0.1") == 0.1
+
+
+# --- _text_severity_to_cvss --------------------------------------------
+
+
+def test_text_severity_to_cvss_critical() -> None:
+    """CRITICAL maps to a score in the >= 9.0 band."""
+    from tailtest.security.sca.osv import _text_severity_to_cvss
+
+    score = _text_severity_to_cvss("CRITICAL")
+    assert score >= 9.0
+    assert _cvss_to_unified_severity(score) == Severity.CRITICAL
+
+
+def test_text_severity_to_cvss_high() -> None:
+    from tailtest.security.sca.osv import _text_severity_to_cvss
+
+    score = _text_severity_to_cvss("HIGH")
+    assert 7.0 <= score < 9.0
+    assert _cvss_to_unified_severity(score) == Severity.HIGH
+
+
+def test_text_severity_to_cvss_moderate() -> None:
+    """GHSA emits MODERATE; we map it to MEDIUM in our enum."""
+    from tailtest.security.sca.osv import _text_severity_to_cvss
+
+    score = _text_severity_to_cvss("MODERATE")
+    assert 4.0 <= score < 7.0
+    assert _cvss_to_unified_severity(score) == Severity.MEDIUM
+
+
+def test_text_severity_to_cvss_low() -> None:
+    from tailtest.security.sca.osv import _text_severity_to_cvss
+
+    score = _text_severity_to_cvss("LOW")
+    assert 0.0 < score < 4.0
+    assert _cvss_to_unified_severity(score) == Severity.LOW
+
+
+def test_text_severity_to_cvss_unknown_returns_zero() -> None:
+    from tailtest.security.sca.osv import _text_severity_to_cvss
+
+    assert _text_severity_to_cvss("WHATEVER") == 0.0
+    assert _text_severity_to_cvss("") == 0.0
+
+
+def test_text_severity_to_cvss_handles_non_string() -> None:
+    from tailtest.security.sca.osv import _text_severity_to_cvss
+
+    assert _text_severity_to_cvss(None) == 0.0
+    assert _text_severity_to_cvss(42) == 0.0
+    assert _text_severity_to_cvss(["HIGH"]) == 0.0
+
+
+def test_text_severity_to_cvss_case_insensitive() -> None:
+    from tailtest.security.sca.osv import _text_severity_to_cvss
+
+    assert _text_severity_to_cvss("high") == _text_severity_to_cvss("HIGH")
+    assert _text_severity_to_cvss("Moderate") == _text_severity_to_cvss("MODERATE")
 
 
 # --- Severity mapping --------------------------------------------------
@@ -726,6 +897,8 @@ def test_osv_vulnerability_defaults() -> None:
     assert vuln.affected_package == ""
     assert vuln.affected_version == ""
     assert vuln.fixed_version == ""
+    # Phase 2 Task 2.10a: cwe_id defaults to empty string.
+    assert vuln.cwe_id == ""
 
 
 # --- OSVLookup end-to-end with mocked httpx client --------------------
@@ -754,7 +927,10 @@ class _MockAsyncClient:
     """Minimal ``httpx.AsyncClient`` stand-in.
 
     Tracks calls so assertions can verify batch sizes, endpoints,
-    and payload shapes.
+    and payload shapes. Supports both POST (used for the OSV
+    ``/v1/querybatch`` endpoint) and GET (used for the per-vuln
+    ``/v1/vulns/<id>`` hydration calls added in Phase 2 Task
+    2.10a).
     """
 
     def __init__(
@@ -762,10 +938,15 @@ class _MockAsyncClient:
         response: _MockResponse | None = None,
         *,
         raise_on_post: Exception | None = None,
+        get_responses: dict[str, _MockResponse] | None = None,
+        raise_on_get: Exception | None = None,
     ) -> None:
         self.response = response
         self.raise_on_post = raise_on_post
+        self.get_responses = get_responses or {}
+        self.raise_on_get = raise_on_get
         self.calls: list[tuple[str, Any]] = []
+        self.get_calls: list[str] = []
 
     async def post(self, url: str, *, json: Any = None) -> _MockResponse:  # noqa: A002
         self.calls.append((url, json))
@@ -773,6 +954,19 @@ class _MockAsyncClient:
             raise self.raise_on_post
         assert self.response is not None
         return self.response
+
+    async def get(self, url: str) -> _MockResponse:
+        self.get_calls.append(url)
+        if self.raise_on_get is not None:
+            raise self.raise_on_get
+        # Match by suffix so callers don't need to know the full
+        # ``OSV_VULNS_URL`` prefix.
+        for key, resp in self.get_responses.items():
+            if url.endswith(key):
+                return resp
+        # No matching response: return a 404 so the caller falls
+        # back to the lean entry.
+        return _MockResponse(404, "")
 
     async def aclose(self) -> None:
         pass
@@ -1000,6 +1194,7 @@ async def test_osv_cache_round_trips_vulnerability(tmp_path: Path) -> None:
         affected_version="from 1.0",
         fixed_version="1.2.3",
         aliases=["CVE-2024-9999"],
+        cwe_id="CWE-200",
     )
     lookup._save_cached(ref, [vuln])
     loaded = lookup._load_cached(ref)
@@ -1012,6 +1207,8 @@ async def test_osv_cache_round_trips_vulnerability(tmp_path: Path) -> None:
     assert loaded_vuln.references == ["https://example.com/a"]
     assert loaded_vuln.aliases == ["CVE-2024-9999"]
     assert loaded_vuln.fixed_version == "1.2.3"
+    # Phase 2 Task 2.10a: cwe_id round-trips through the cache.
+    assert loaded_vuln.cwe_id == "CWE-200"
 
 
 def test_osv_cache_miss_when_file_absent(tmp_path: Path) -> None:
@@ -1053,3 +1250,389 @@ def test_osv_cache_file_wrong_shape_returns_miss(tmp_path: Path) -> None:
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     cache_file.write_text('{"not": "a list"}', encoding="utf-8")
     assert lookup._load_cached(ref) is None
+
+
+# --- Phase 2 Task 2.10a: per-vuln hydration cache + GET path ---------
+
+
+def _full_vuln_response(
+    vuln_id: str,
+    *,
+    cvss_score_str: str | None = None,
+    text_severity: str = "HIGH",
+    cwe_ids: list[str] | None = None,
+) -> dict:
+    """Build a realistic /v1/vulns/<id> response payload for tests."""
+    payload: dict = {
+        "id": vuln_id,
+        "summary": f"Vulnerability {vuln_id}",
+        "details": "Detailed explanation here.",
+        "database_specific": {
+            "severity": text_severity,
+            "cwe_ids": cwe_ids or ["CWE-79"],
+        },
+        "references": [
+            {"type": "ADVISORY", "url": f"https://github.com/advisories/{vuln_id}"},
+        ],
+    }
+    if cvss_score_str is not None:
+        payload["severity"] = [{"type": "CVSS_V3", "score": cvss_score_str}]
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_hydration_replaces_lean_with_full(tmp_path: Path) -> None:
+    """End-to-end: lean batch response + rich /v1/vulns hydration
+    yields findings with proper non-INFO severity.
+    """
+    lean_batch = {"results": [{"vulns": [{"id": "GHSA-hydrated-1", "modified": "2024-01-01"}]}]}
+    full_vuln = _full_vuln_response(
+        "GHSA-hydrated-1",
+        cvss_score_str="9.8",
+        text_severity="CRITICAL",
+        cwe_ids=["CWE-79"],
+    )
+    client = _MockAsyncClient(
+        response=_MockResponse(200, lean_batch),
+        get_responses={"GHSA-hydrated-1": _MockResponse(200, full_vuln)},
+    )
+    lookup = OSVLookup(tmp_path, client=client, enable_cache=False)  # type: ignore[arg-type]
+    diff = ManifestDiff(added=[_pkg("foo", "1.0")], bumped=[])
+    findings = await lookup.check_manifest_diff(diff, run_id="r-hydrate")
+
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.kind == FindingKind.SCA
+    assert f.severity == Severity.CRITICAL
+    assert f.cvss_score == 9.8
+    assert f.cwe_id == "CWE-79"
+    # Both POST (batch) and GET (hydration) should have happened.
+    assert len(client.calls) == 1
+    assert len(client.get_calls) == 1
+    assert "GHSA-hydrated-1" in client.get_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_hydration_uses_text_severity_fallback_for_vector_only(
+    tmp_path: Path,
+) -> None:
+    """When the hydrated response has a vector-only CVSS, the text
+    label still drives the severity. This is the dogfood-caught
+    scenario: GHSA-9hjg-9r4m-mvj7 has CVSS:3.1/... with no
+    trailing score plus database_specific.severity HIGH.
+    """
+    lean_batch = {"results": [{"vulns": [{"id": "GHSA-vector-only", "modified": "2024"}]}]}
+    full_vuln = _full_vuln_response(
+        "GHSA-vector-only",
+        cvss_score_str="CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N",
+        text_severity="HIGH",
+    )
+    client = _MockAsyncClient(
+        response=_MockResponse(200, lean_batch),
+        get_responses={"GHSA-vector-only": _MockResponse(200, full_vuln)},
+    )
+    lookup = OSVLookup(tmp_path, client=client, enable_cache=False)  # type: ignore[arg-type]
+    diff = ManifestDiff(added=[_pkg("foo", "1.0")], bumped=[])
+    findings = await lookup.check_manifest_diff(diff, run_id="r-vec")
+
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_hydration_failure_keeps_lean_fallback(tmp_path: Path) -> None:
+    """If hydration returns 500 (or anything non-200), the lean
+    entry is preserved so the user still sees the finding."""
+    lean_with_inline_data = {
+        "results": [
+            {
+                "vulns": [
+                    {
+                        "id": "GHSA-no-hydrate",
+                        "summary": "lean only",
+                        "severity": [{"type": "CVSS_V3", "score": "5.5"}],
+                    }
+                ]
+            }
+        ]
+    }
+    client = _MockAsyncClient(
+        response=_MockResponse(200, lean_with_inline_data),
+        get_responses={"GHSA-no-hydrate": _MockResponse(500, "server error")},
+    )
+    lookup = OSVLookup(tmp_path, client=client, enable_cache=False)  # type: ignore[arg-type]
+    diff = ManifestDiff(added=[_pkg("foo", "1.0")], bumped=[])
+    findings = await lookup.check_manifest_diff(diff, run_id="r-fail")
+
+    assert len(findings) == 1
+    # Severity from the inline lean entry, not zero.
+    assert findings[0].cvss_score == 5.5
+    assert findings[0].severity == Severity.MEDIUM
+    # GET was attempted but returned 500.
+    assert len(client.get_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_hydration_network_error_keeps_lean_fallback(tmp_path: Path) -> None:
+    """A raised exception during hydration must NOT take down the batch."""
+    lean_with_inline_data = {
+        "results": [
+            {
+                "vulns": [
+                    {
+                        "id": "GHSA-net-fail",
+                        "severity": [{"type": "CVSS_V3", "score": "6.0"}],
+                    }
+                ]
+            }
+        ]
+    }
+    client = _MockAsyncClient(
+        response=_MockResponse(200, lean_with_inline_data),
+        raise_on_get=httpx.ConnectError("DNS failure"),
+    )
+    lookup = OSVLookup(tmp_path, client=client, enable_cache=False)  # type: ignore[arg-type]
+    diff = ManifestDiff(added=[_pkg("foo", "1.0")], bumped=[])
+    findings = await lookup.check_manifest_diff(diff, run_id="r-net")
+
+    assert len(findings) == 1
+    assert findings[0].cvss_score == 6.0
+
+
+@pytest.mark.asyncio
+async def test_hydration_cache_hit_skips_get_call(tmp_path: Path) -> None:
+    """Pre-populated per-vuln cache should skip the GET API call."""
+    lean_batch = {"results": [{"vulns": [{"id": "GHSA-cached-vuln", "modified": "2024"}]}]}
+    client = _MockAsyncClient(response=_MockResponse(200, lean_batch))
+    lookup = OSVLookup(tmp_path, client=client, enable_cache=True)  # type: ignore[arg-type]
+
+    # Pre-populate the per-vuln raw cache with a full response.
+    full_vuln = _full_vuln_response(
+        "GHSA-cached-vuln",
+        cvss_score_str="8.8",
+        text_severity="HIGH",
+    )
+    lookup._save_cached_vuln_raw("GHSA-cached-vuln", full_vuln)
+
+    diff = ManifestDiff(added=[_pkg("foo", "1.0")], bumped=[])
+    findings = await lookup.check_manifest_diff(diff, run_id="r-cached")
+
+    assert len(findings) == 1
+    assert findings[0].cvss_score == 8.8
+    # POST happened (batch query), GET (hydration) was SKIPPED
+    # because the per-vuln cache hit.
+    assert len(client.calls) == 1
+    assert len(client.get_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_hydration_cache_populates_after_first_call(tmp_path: Path) -> None:
+    """First call hits the API; second call hits the cache."""
+    lean_batch = {"results": [{"vulns": [{"id": "GHSA-populate", "modified": "2024"}]}]}
+    full_vuln = _full_vuln_response("GHSA-populate", cvss_score_str="7.0", text_severity="HIGH")
+    client = _MockAsyncClient(
+        response=_MockResponse(200, lean_batch),
+        get_responses={"GHSA-populate": _MockResponse(200, full_vuln)},
+    )
+    lookup = OSVLookup(tmp_path, client=client, enable_cache=True)  # type: ignore[arg-type]
+    diff = ManifestDiff(added=[_pkg("foo", "1.0")], bumped=[])
+
+    # First scan: GET happens.
+    await lookup.check_manifest_diff(diff, run_id="r1")
+    assert len(client.get_calls) == 1
+
+    # Bust the manifest snapshot so the SECOND scan re-queries
+    # the batch endpoint.
+    snap = tmp_path / ".tailtest" / "cache" / "manifests"
+    if (snap / "pyproject.toml.snap").exists():
+        (snap / "pyproject.toml.snap").unlink()
+
+    # Second scan: per-vuln cache hit, no second GET.
+    await lookup.check_manifest_diff(diff, run_id="r2")
+    assert len(client.get_calls) == 1  # still 1
+
+
+# --- Phase 2 Task 2.10a: dedup by alias chain ------------------------
+
+
+def test_dedup_vulns_drops_alias_duplicates() -> None:
+    """A PYSEC entry whose id appears in a GHSA's aliases must drop."""
+    from tailtest.security.sca.osv import _dedup_vulns_by_alias
+
+    ghsa = OSVVulnerability(
+        vuln_id="GHSA-cfj3-7x9c-4p3h",
+        summary="GHSA entry",
+        details="",
+        cvss_score=5.0,
+        aliases=["CVE-2014-1829", "PYSEC-2014-13"],
+    )
+    pysec = OSVVulnerability(
+        vuln_id="PYSEC-2014-13",
+        summary="PYSEC duplicate",
+        details="",
+        cvss_score=0.0,
+    )
+    cve = OSVVulnerability(
+        vuln_id="CVE-2014-1829",
+        summary="CVE duplicate",
+        details="",
+        cvss_score=0.0,
+    )
+    deduped = _dedup_vulns_by_alias([ghsa, pysec, cve])
+    assert len(deduped) == 1
+    assert deduped[0].vuln_id == "GHSA-cfj3-7x9c-4p3h"
+
+
+def test_dedup_vulns_first_wins() -> None:
+    """First-occurrence wins because OSV puts authoritative entries first."""
+    from tailtest.security.sca.osv import _dedup_vulns_by_alias
+
+    a = OSVVulnerability(
+        vuln_id="A-1", summary="first", details="", cvss_score=5.0, aliases=["B-1"]
+    )
+    b = OSVVulnerability(vuln_id="B-1", summary="second", details="", cvss_score=9.0)
+    deduped = _dedup_vulns_by_alias([a, b])
+    assert len(deduped) == 1
+    assert deduped[0].vuln_id == "A-1"
+    assert deduped[0].cvss_score == 5.0  # NOT 9.0
+
+
+def test_dedup_vulns_keeps_distinct_findings() -> None:
+    """Two genuinely-different vulns must both survive dedup."""
+    from tailtest.security.sca.osv import _dedup_vulns_by_alias
+
+    a = OSVVulnerability(vuln_id="GHSA-aaaa", summary="a", details="", cvss_score=5.0)
+    b = OSVVulnerability(vuln_id="GHSA-bbbb", summary="b", details="", cvss_score=7.0)
+    deduped = _dedup_vulns_by_alias([a, b])
+    assert len(deduped) == 2
+
+
+def test_dedup_vulns_empty_input() -> None:
+    from tailtest.security.sca.osv import _dedup_vulns_by_alias
+
+    assert _dedup_vulns_by_alias([]) == []
+
+
+def test_dedup_vulns_skips_empty_id() -> None:
+    """A vuln with empty vuln_id is dropped silently."""
+    from tailtest.security.sca.osv import _dedup_vulns_by_alias
+
+    bad = OSVVulnerability(vuln_id="", summary="x", details="", cvss_score=0.0)
+    good = OSVVulnerability(vuln_id="GHSA-x", summary="y", details="", cvss_score=5.0)
+    deduped = _dedup_vulns_by_alias([bad, good])
+    assert len(deduped) == 1
+    assert deduped[0].vuln_id == "GHSA-x"
+
+
+@pytest.mark.asyncio
+async def test_hydration_dedupes_pysec_duplicate_of_ghsa(tmp_path: Path) -> None:
+    """End-to-end: a lean batch with both GHSA and its PYSEC alias
+    yields ONE finding after hydration + dedup."""
+    lean_batch = {
+        "results": [
+            {
+                "vulns": [
+                    {"id": "GHSA-cfj3-7x9c-4p3h", "modified": "2024"},
+                    {"id": "PYSEC-2014-13", "modified": "2024"},
+                ]
+            }
+        ]
+    }
+    full_ghsa = _full_vuln_response("GHSA-cfj3-7x9c-4p3h", text_severity="MODERATE")
+    full_ghsa["aliases"] = ["CVE-2014-1829", "PYSEC-2014-13"]
+    full_pysec = {
+        "id": "PYSEC-2014-13",
+        "summary": "duplicate",
+        "details": "",
+        "aliases": ["CVE-2014-1829", "GHSA-cfj3-7x9c-4p3h"],
+    }
+    client = _MockAsyncClient(
+        response=_MockResponse(200, lean_batch),
+        get_responses={
+            "GHSA-cfj3-7x9c-4p3h": _MockResponse(200, full_ghsa),
+            "PYSEC-2014-13": _MockResponse(200, full_pysec),
+        },
+    )
+    lookup = OSVLookup(tmp_path, client=client, enable_cache=False)  # type: ignore[arg-type]
+    diff = ManifestDiff(added=[_pkg("requests", "2.0.0")], bumped=[])
+    findings = await lookup.check_manifest_diff(diff, run_id="r-dedup")
+
+    # ONE finding (GHSA wins; PYSEC is dropped as alias).
+    assert len(findings) == 1
+    assert findings[0].rule_id == "osv::GHSA-cfj3-7x9c-4p3h"
+
+
+@pytest.mark.asyncio
+async def test_hydration_dedupes_same_vuln_id_across_packages(tmp_path: Path) -> None:
+    """If two packages share a vuln id, only one GET is made."""
+    lean_batch = {
+        "results": [
+            {"vulns": [{"id": "GHSA-shared", "modified": "2024"}]},
+            {"vulns": [{"id": "GHSA-shared", "modified": "2024"}]},
+        ]
+    }
+    full_vuln = _full_vuln_response("GHSA-shared", cvss_score_str="7.5", text_severity="HIGH")
+    client = _MockAsyncClient(
+        response=_MockResponse(200, lean_batch),
+        get_responses={"GHSA-shared": _MockResponse(200, full_vuln)},
+    )
+    lookup = OSVLookup(tmp_path, client=client, enable_cache=False)  # type: ignore[arg-type]
+    diff = ManifestDiff(added=[_pkg("foo", "1.0"), _pkg("bar", "2.0")], bumped=[])
+    findings = await lookup.check_manifest_diff(diff, run_id="r-dedup")
+
+    # Two findings (one per package).
+    assert len(findings) == 2
+    # But only ONE GET (hydration deduped by vuln_id).
+    assert len(client.get_calls) == 1
+
+
+def test_load_cached_vuln_raw_missing_returns_none(tmp_path: Path) -> None:
+    lookup = OSVLookup(tmp_path, enable_cache=True)
+    assert lookup._load_cached_vuln_raw("GHSA-missing") is None
+
+
+def test_load_cached_vuln_raw_corrupt_returns_none(tmp_path: Path) -> None:
+    lookup = OSVLookup(tmp_path, enable_cache=True)
+    cache_file = lookup._vuln_cache_file_for("GHSA-corrupt")
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text("{not json", encoding="utf-8")
+    assert lookup._load_cached_vuln_raw("GHSA-corrupt") is None
+
+
+def test_load_cached_vuln_raw_wrong_shape_returns_none(tmp_path: Path) -> None:
+    lookup = OSVLookup(tmp_path, enable_cache=True)
+    cache_file = lookup._vuln_cache_file_for("GHSA-shape")
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text("[1, 2, 3]", encoding="utf-8")
+    assert lookup._load_cached_vuln_raw("GHSA-shape") is None
+
+
+def test_save_then_load_cached_vuln_raw_round_trips(tmp_path: Path) -> None:
+    lookup = OSVLookup(tmp_path, enable_cache=True)
+    raw = _full_vuln_response("GHSA-round", cvss_score_str="6.0")
+    lookup._save_cached_vuln_raw("GHSA-round", raw)
+    loaded = lookup._load_cached_vuln_raw("GHSA-round")
+    assert loaded is not None
+    assert loaded["id"] == "GHSA-round"
+    assert loaded["database_specific"]["cwe_ids"] == ["CWE-79"]
+
+
+def test_hydration_finding_carries_advisory_url_from_full_response(
+    tmp_path: Path,
+) -> None:
+    """The advisory_url field on the Finding comes from the FIRST
+    reference URL in the hydrated response, not the lean entry."""
+    import asyncio
+
+    lean_batch = {"results": [{"vulns": [{"id": "GHSA-link", "modified": "2024"}]}]}
+    full_vuln = _full_vuln_response("GHSA-link", cvss_score_str="7.5", text_severity="HIGH")
+    client = _MockAsyncClient(
+        response=_MockResponse(200, lean_batch),
+        get_responses={"GHSA-link": _MockResponse(200, full_vuln)},
+    )
+    lookup = OSVLookup(tmp_path, client=client, enable_cache=False)  # type: ignore[arg-type]
+    diff = ManifestDiff(added=[_pkg("foo", "1.0")], bumped=[])
+    findings = asyncio.run(lookup.check_manifest_diff(diff, run_id="r-link"))
+    assert len(findings) == 1
+    assert findings[0].advisory_url == "https://github.com/advisories/GHSA-link"
+    assert findings[0].cwe_id == "CWE-79"
