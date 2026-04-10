@@ -88,19 +88,32 @@ async def run(
     loader = ConfigLoader(tailtest_dir)
     config = loader.ensure_default()
 
-    # Run the shallow scan. Catch every exception so an empty or
+    # Run the shallow scan (or reuse a cached profile when structural
+    # files have not changed). Catch every exception so an empty or
     # broken project cannot crash the session start path.
     scan_status: str = "ok"
     scan_message: str = ""
     profile = None
+    structural_change = False
     try:
         scanner = ProjectScanner(root)
-        profile = scanner.scan_shallow()
-        # Propagate ai_checks_enabled from config into the profile so
-        # downstream consumers (hooks, engine) see the user's decision
-        # without re-reading the config file themselves.
-        profile = profile.model_copy(update={"ai_checks_enabled": config.ai_checks_enabled})
-        scanner.save_profile(profile)
+        # Try to reuse a cached profile if structural files haven't changed.
+        # If the cache is fresh, skip the expensive scan_shallow() call.
+        cached = scanner.load_profile()
+        if cached is not None and scanner.is_cache_fresh(cached):
+            profile = cached
+            # Propagate ai_checks_enabled from config into the cached profile
+            # so downstream consumers see the user's current decision.
+            profile = profile.model_copy(update={"ai_checks_enabled": config.ai_checks_enabled})
+        else:
+            if cached is not None:
+                structural_change = True  # existing profile but hash changed
+            profile = scanner.scan_shallow()
+            # Propagate ai_checks_enabled from config into the profile so
+            # downstream consumers (hooks, engine) see the user's decision
+            # without re-reading the config file themselves.
+            profile = profile.model_copy(update={"ai_checks_enabled": config.ai_checks_enabled})
+            scanner.save_profile(profile)
         if profile.scan_status == ScanStatus.FAILED:
             scan_status = "failed"
             scan_message = "scan failed, run tailtest doctor to debug"
@@ -146,6 +159,15 @@ async def run(
         rec_line = _build_rec_count_line(profile, tailtest_dir)
         if rec_line and len(message.encode("utf-8")) < 1800:
             message = f"{message}\n{rec_line}"
+
+    # Structural change nudge: when structural files changed since the last
+    # profile was saved, prompt the user to run a deep scan.
+    if structural_change and profile is not None and not _profile_is_empty(profile) and scan_status != "failed":
+        change_line = (
+            "tailtest: your project structure changed. Run /tailtest scan --deep to refresh the analysis."
+        )
+        if len(message.encode("utf-8")) < 1800:
+            message = f"{message}\n{change_line}"
 
     # One-time AI-agent offer (Phase 3 Task 3.5). Fires when the project
     # is detected as an AI agent and the user has not yet decided whether
