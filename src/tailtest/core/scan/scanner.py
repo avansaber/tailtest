@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from tailtest.core.recommendations import DismissalStore, Recommendation, RecommendationKind, RecommendationPriority
 from tailtest.core.scan import detectors
 from tailtest.core.scan.profile import (
     ProjectProfile,
@@ -76,23 +77,12 @@ Only return valid JSON. No markdown fences. Max 5 recommendations.\
 
 
 @dataclass
-class ScanRecommendation:
-    """One actionable recommendation from a deep scan."""
-
-    kind: str  # install_tool | enable_depth | add_test | configure_runner | enable_ai_checks
-    priority: str  # high | medium | low
-    title: str
-    why: str
-    next_step: str
-
-
-@dataclass
 class DeepScanResult:
     """Result of an AI-powered deep project analysis."""
 
     summary: str
     concerns: list[str] = field(default_factory=list)
-    recommendations: list[ScanRecommendation] = field(default_factory=list)
+    recommendations: list[Recommendation] = field(default_factory=list)
     cached: bool = False
     content_hash: str = ""
 
@@ -203,17 +193,36 @@ class ProjectScanner:
         return path
 
     def load_profile(self, tailtest_dir: Path | None = None) -> ProjectProfile | None:
-        """Read the profile JSON from disk, or None if missing/invalid."""
+        """Read the profile JSON from disk, or None if missing/invalid.
+
+        If the profile contains recommendations, dismissal state from
+        .tailtest/dismissed.json is applied so callers see up-to-date
+        `dismissed_until` values.
+        """
         target = tailtest_dir or (self.project_root / ".tailtest")
         path = target / "profile.json"
         if not path.exists():
             return None
         try:
             text = path.read_text(encoding="utf-8")
-            return ProjectProfile.from_json(text)
+            profile = ProjectProfile.from_json(text)
         except Exception as exc:  # noqa: BLE001
             logger.warning("failed to load cached profile: %s", exc)
             return None
+
+        # Apply stored dismissals to the recommendations list.
+        if profile.recommendations:
+            try:
+                store = DismissalStore(self.project_root)
+                recs = [Recommendation.model_validate(r) for r in profile.recommendations]
+                recs = store.apply(recs)
+                profile = profile.model_copy(
+                    update={"recommendations": [r.model_dump(mode="json") for r in recs]}
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("failed to apply dismissals to profile: %s", exc)
+
+        return profile
 
     def is_cache_fresh(self, profile: ProjectProfile) -> bool:
         """Check if a cached profile is still valid by re-hashing structural files."""
@@ -383,30 +392,35 @@ class ProjectScanner:
             "summary": result.summary,
             "concerns": result.concerns,
             "recommendations": [
-                {
-                    "kind": r.kind,
-                    "priority": r.priority,
-                    "title": r.title,
-                    "why": r.why,
-                    "next_step": r.next_step,
-                }
+                r.model_dump(mode="json")
                 for r in result.recommendations
             ],
             "content_hash": result.content_hash,
         }
 
     def _dict_to_result(self, data: dict, *, cached: bool = False) -> DeepScanResult:
-        recommendations = [
-            ScanRecommendation(
-                kind=r.get("kind", ""),
-                priority=r.get("priority", "medium"),
-                title=r.get("title", ""),
-                why=r.get("why", ""),
-                next_step=r.get("next_step", ""),
-            )
-            for r in (data.get("recommendations") or [])
-            if isinstance(r, dict)
-        ]
+        recommendations: list[Recommendation] = []
+        for r in (data.get("recommendations") or []):
+            if not isinstance(r, dict):
+                continue
+            try:
+                kind_val = r.get("kind", "")
+                priority_val = r.get("priority", "medium")
+                # Validate enum values; skip invalid entries rather than crashing.
+                kind = RecommendationKind(kind_val)
+                priority = RecommendationPriority(priority_val)
+                recommendations.append(
+                    Recommendation(
+                        kind=kind,
+                        priority=priority,
+                        title=r.get("title", ""),
+                        why=r.get("why", ""),
+                        next_step=r.get("next_step", ""),
+                        source="llm",
+                    )
+                )
+            except (ValueError, Exception) as exc:  # noqa: BLE001
+                logger.debug("skipping invalid recommendation from LLM: %s", exc)
         return DeepScanResult(
             summary=data.get("summary", ""),
             concerns=list(data.get("concerns") or []),
@@ -542,6 +556,10 @@ class ProjectScanner:
             else:
                 existing = {}
             existing["deep_scan"] = self._result_to_dict(result)
+            # Also store serialized recommendations in the top-level profile field.
+            existing["recommendations"] = [
+                r.model_dump(mode="json") for r in result.recommendations
+            ]
             profile_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
         except Exception as exc:  # noqa: BLE001
             logger.warning("scan_deep: failed to merge into profile.json: %s", exc)

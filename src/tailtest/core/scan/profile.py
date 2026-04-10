@@ -176,6 +176,9 @@ class ProjectProfile(BaseModel):
     # Phase 3+ deep scan output
     llm_summary: str | None = None
 
+    # Phase 3 Task 3.2: serialized Recommendation objects from deep scan
+    recommendations: list[dict] = Field(default_factory=list)
+
     # --- Convenience helpers ---
 
     def to_json(self, *, indent: int = 2) -> str:
