@@ -131,4 +131,6 @@ python_functions = ["test_*"]
 # Their tests run in subprocesses invoked by PythonRunner tests — outer
 # pytest must NOT recurse into them (tests would be run twice and the
 # intentional-failure tests would be reported as real failures).
-norecursedirs = ["tests/fixtures"]
+norecursedirs = [
+    "tests/fixtures",
+]

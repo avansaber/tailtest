@@ -58,6 +58,7 @@ from uuid import uuid4
 # the import chain here populates the default registry before we touch it.
 import tailtest.core.runner.javascript  # noqa: F401, E402
 import tailtest.core.runner.python  # noqa: F401, E402
+import tailtest.core.runner.rust  # noqa: F401, E402
 from tailtest.core.baseline import BaselineManager
 from tailtest.core.config import Config, ConfigLoader, DepthMode
 from tailtest.core.events import Event, EventKind, EventWriter
