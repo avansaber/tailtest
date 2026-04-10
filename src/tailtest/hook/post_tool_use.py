@@ -329,12 +329,67 @@ async def run(
             payload=payload,
         )
 
+    # Recommendation surface (Phase 3 Task 3.4). Fire at most once per
+    # session via a flag file. SOFT append -- never replaces test output.
+    rec_surface_line = _maybe_surface_rec_line(root)
+
     stdout_json = _format_additional_context(
         batch,
         manifest_rescanned=manifest_rescanned,
         auto_offer_suggestions=auto_offer_suggestions,
+        rec_surface_line=rec_surface_line,
     )
     return HookResult(stdout_json=stdout_json, reason="ok")
+
+
+def _maybe_surface_rec_line(root: Path) -> str | None:
+    """Return a one-liner recommendation surface line, or None.
+
+    Fires at most once per session by checking for a flag file at
+    ``.tailtest/rec_surfaced.flag``. If the flag exists, returns None
+    (already surfaced this session). If it does not exist, runs the
+    engine, checks for high-priority active recommendations, and either
+    creates the flag + returns the line, or returns None when there are
+    no high-priority recs to surface.
+
+    All failures are caught and logged; this path must never raise.
+    """
+    try:
+        tailtest_dir = root / ".tailtest"
+        flag_path = tailtest_dir / "rec_surfaced.flag"
+        if flag_path.exists():
+            return None
+
+        from tailtest.core.recommender.engine import RecommendationEngine
+        from tailtest.core.recommendations.store import DismissalStore
+        from tailtest.core.scan import ProjectScanner
+
+        scanner = ProjectScanner(root)
+        profile = scanner.load_profile()
+        if profile is None:
+            return None
+
+        engine = RecommendationEngine()
+        recs = engine.compute(profile)
+        store = DismissalStore(root)
+        recs = store.apply(recs)
+        high_active = [r for r in recs if r.priority == "high" and not r.is_dismissed]
+        if not high_active:
+            return None
+
+        # Create the flag so subsequent PostToolUse calls in this session skip.
+        try:
+            tailtest_dir.mkdir(parents=True, exist_ok=True)
+            flag_path.write_text("", encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not write rec_surfaced.flag: %s", exc)
+
+        count = len(high_active)
+        noun = "recommendation" if count == 1 else "recommendations"
+        return f"tailtest: {count} new {noun} -- run /tailtest for details."
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rec surface check failed: %s", exc)
+        return None
 
 
 def _collect_auto_offer_suggestions(
@@ -652,6 +707,7 @@ def _format_additional_context(
     *,
     manifest_rescanned: bool,
     auto_offer_suggestions: list[str] | None = None,
+    rec_surface_line: str | None = None,
 ) -> str:
     """Build the hookSpecificOutput JSON payload for Claude's next turn.
 
@@ -714,6 +770,10 @@ def _format_additional_context(
         lines.append("")  # blank separator
         for suggestion in auto_offer_suggestions:
             lines.append(suggestion)
+
+    # Recommendation surface: one line, once per session, always last.
+    if rec_surface_line:
+        lines.append(rec_surface_line)
 
     additional_context = "\n".join(lines)
     additional_context = _truncate(additional_context)

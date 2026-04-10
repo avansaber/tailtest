@@ -32,6 +32,8 @@ EXPECTED_SKILLS = {
     "debt",
     # Phase 2 Task 2.8 added the security posture skill.
     "security",
+    # Phase 3 Task 3.4 added the recommendations UX skill.
+    "tailtest",
 }
 
 # Skills that take a positional argument via $ARGUMENTS and therefore
@@ -71,8 +73,11 @@ def test_every_expected_skill_has_a_directory() -> None:
 
 
 def test_no_stale_skill_directories() -> None:
-    """Phase 0 placeholder `skills/tailtest/` must be gone. Only the six
-    expected namespaced skills should be present.
+    """Only the expected namespaced skills should be present.
+
+    Note: `skills/tailtest/` is intentional as of Phase 3 Task 3.4 -- it
+    is the main `/tailtest` recommendations skill, not a Phase 0 placeholder.
+    Any directory NOT in EXPECTED_SKILLS is flagged here.
     """
     present = {p.name for p in SKILLS_DIR.iterdir() if p.is_dir()}
     extra = present - EXPECTED_SKILLS
