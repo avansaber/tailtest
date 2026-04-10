@@ -194,6 +194,8 @@ JS_FRAMEWORK_SIGNATURES: dict[str, tuple[str, str]] = {
     "ai": ("vercel-ai-sdk", "agent"),
     "@langchain/core": ("langchain", "agent"),
     "langchain": ("langchain", "agent"),
+    "@mariozechner/pi-ai": ("pi-ai", "agent"),
+    "@mariozechner/pi-coding-agent": ("pi-coding-agent", "agent"),
     "next": ("nextjs", "web"),
     "react": ("react", "web"),
     "vue": ("vue", "web"),
@@ -397,6 +399,18 @@ def detect_runners(root: Path, languages: dict[str, int]) -> list[DetectedRunner
                         config_file=pkg,
                     )
                 )
+            elif not any(r.language in ("typescript", "javascript") for r in runners):
+                # Detect node:test built-in runner via package.json test script
+                scripts = data.get("scripts") or {}
+                test_script = scripts.get("test") or ""
+                if "node" in test_script and "--test" in test_script:
+                    runners.append(
+                        DetectedRunner(
+                            name="node-test",
+                            language="typescript" if "typescript" in languages else "javascript",
+                            config_file=pkg,
+                        )
+                    )
 
     return runners
 
@@ -573,6 +587,8 @@ _AGENT_FRAMEWORK_NAMES: frozenset[str] = frozenset(
         "claude-agent-sdk",
         "vercel-ai-sdk",
         "litellm",
+        "pi-ai",
+        "pi-coding-agent",
     }
 )
 
@@ -597,6 +613,7 @@ _AI_IMPORT_PATTERNS = [
     re.compile(r"from\s+['\"]openai['\"]"),
     re.compile(r"from\s+['\"]@langchain"),
     re.compile(r"from\s+['\"]ai['\"]"),  # Vercel AI SDK
+    re.compile(r'from\s+[\'"]@mariozechner/'),  # pi-ai family
 ]
 
 _SYSTEM_PROMPT_PATTERNS = [
