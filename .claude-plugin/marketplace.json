@@ -1,0 +1,42 @@
+{
+  "name": "avansaber-tailtest",
+  "owner": {
+    "name": "AvanSaber Inc.",
+    "email": "support@avansaber.com"
+  },
+  "metadata": {
+    "description": "Test + security validator that lives inside Claude Code. Runs tests + secrets + SAST + SCA on every edit, feeds findings back into Claude's next turn. Never blocks, never lies.",
+    "homepage": "https://tailtest.com",
+    "repository": "https://github.com/avansaber/tailtest"
+  },
+  "plugins": [
+    {
+      "name": "tailtest",
+      "source": "./",
+      "description": "Test + security validator for Claude Code. PostToolUse hook runs impacted tests + gitleaks + Semgrep + OSV on every edit, feeds findings back via additionalContext. Phase 2 security layer shipped at v0.1.0-alpha.2.",
+      "version": "0.1.0-alpha.2",
+      "author": {
+        "name": "AvanSaber Inc.",
+        "email": "support@avansaber.com",
+        "url": "https://avansaber.com"
+      },
+      "homepage": "https://tailtest.com",
+      "repository": "https://github.com/avansaber/tailtest",
+      "license": "Apache-2.0",
+      "keywords": [
+        "testing",
+        "security",
+        "ai-agents",
+        "auto-test",
+        "sast",
+        "sca",
+        "secrets",
+        "pytest",
+        "vitest",
+        "jest",
+        "claude-code",
+        "framework-agnostic"
+      ]
+    }
+  ]
+}
