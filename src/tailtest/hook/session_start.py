@@ -39,6 +39,8 @@ from pathlib import Path
 from typing import Any
 
 from tailtest.core.config import ConfigLoader
+from tailtest.core.recommendations.store import DismissalStore
+from tailtest.core.recommender.engine import RecommendationEngine
 from tailtest.core.scan import ProjectScanner
 from tailtest.core.scan.profile import ScanStatus
 from tailtest.core.session_state import SessionState, save_session_state
@@ -121,6 +123,15 @@ async def run(
             f"{primary} project, {runner_part}. Run /tailtest:status for options."
         )
 
+    # Append a high-priority recommendation count if any exist.
+    # One line max; never shows full recommendation text (noise discipline).
+    # Cap: skip this line if the current message is already long (rough
+    # 500-token guard -- 500 tokens * ~4 chars/token = 2000 chars).
+    if profile is not None and not _profile_is_empty(profile) and scan_status != "failed":
+        rec_line = _build_rec_count_line(profile, tailtest_dir)
+        if rec_line and len(message.encode("utf-8")) < 1800:
+            message = f"{message}\n{rec_line}"
+
     envelope = {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
@@ -131,6 +142,31 @@ async def run(
 
 
 # --- Helpers ------------------------------------------------------------
+
+
+def _build_rec_count_line(profile: Any, tailtest_dir: Path) -> str | None:
+    """Return a one-line high-priority recommendation summary, or None.
+
+    Runs the rules-based engine, applies dismissals, and counts HIGH-priority
+    active recommendations. Returns None when the count is zero or on any
+    failure (this path must never raise).
+    """
+    try:
+        engine = RecommendationEngine()
+        recs = engine.compute(profile)
+        store = DismissalStore(tailtest_dir.parent)
+        recs = store.apply(recs)
+        high_active = [r for r in recs if r.priority == "high" and not r.is_dismissed]
+        if not high_active:
+            return None
+        count = len(high_active)
+        noun = "recommendation" if count == 1 else "recommendations"
+        return (
+            f"tailtest: {count} high-priority {noun} -- run /tailtest to see them."
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("SessionStart rec count failed: %s", exc)
+        return None
 
 
 def _parse_stdin(stdin_text: str) -> dict[str, Any] | None:
