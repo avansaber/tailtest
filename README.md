@@ -9,14 +9,17 @@ tailtest watches every edit your AI agent makes inside Claude Code, runs the tes
 ## Quickstart (5 minutes)
 
 ```bash
-# 1. Install the plugin from the GitHub marketplace
-claude plugin marketplace add avansaber/tailtest
-claude plugin install tailtest@avansaber/tailtest
+# 1. Install the Python package (the hook needs it on the same python3)
+python3 -m pip install tailtester
 
-# 2. Restart your Claude Code session
+# 2. Install the plugin from the GitHub marketplace
+claude plugin marketplace add avansaber/tailtest
+claude plugin install tailtest@avansaber-tailtest
+
+# 3. Restart your Claude Code session
 # (the skill registry doesn't hot-load, so a restart is mandatory)
 
-# 3. Open a project and let Claude edit a Python or JS/TS file
+# 4. Open a project and let Claude edit a Python or JS/TS file
 # tailtest's hot loop fires automatically on every Edit/Write
 ```
 

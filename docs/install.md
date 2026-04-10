@@ -5,22 +5,29 @@ This page covers the full install story, the upgrade path from older releases, a
 ## TL;DR
 
 ```bash
+# 1. Install the Python package (the hook needs it)
+python3 -m python3 -m pip install tailtester
+
+# 2. Install the Claude Code plugin
 claude plugin marketplace add avansaber/tailtest
-claude plugin install tailtest@avansaber/tailtest
-# then quit and restart Claude Code
+claude plugin install tailtest@avansaber-tailtest
+
+# 3. Restart Claude Code
 ```
 
 That's it for most users on a fresh setup. The rest of this page covers the cases where it isn't.
 
 ## What gets installed
 
-`claude plugin install tailtest@avansaber/tailtest` does three things:
+The install has two parts that serve different purposes:
+
+**`python3 -m python3 -m pip install tailtester`** puts the tailtest engine (the Python package) on your PATH. The hook shim needs this because it runs `import tailtest.hook` when Claude Code fires the PostToolUse event. Without the pip install, the plugin installs but the hook fails silently because the Python import doesn't resolve. The Level 2 dogfood validated this: on a clean machine with only the plugin installed (no pip), the hook bootstrap tried to import tailtest, failed, and exited silently with a helpful stderr message.
+
+**`claude plugin install tailtest@avansaber-tailtest`** does three things:
 
 1. **Clones the tailtest plugin tree** into Claude Code's user-scope plugin directory (typically `~/.config/claude/plugins/`).
 2. **Registers the hooks** (`PostToolUse`, `SessionStart`) by writing to your Claude Code hook configuration.
 3. **Registers the skills** (`/tailtest:status`, `/tailtest:report`, etc.) into your Claude Code skill registry.
-
-It does NOT install the Python package on its own. If you want to use the standalone CLI (`tailtest run`, `tailtest scan`, `tailtest doctor`) outside Claude Code, see [Standalone CLI install](#standalone-cli-install) below.
 
 ## Restart Claude Code after install
 
@@ -35,7 +42,7 @@ You'll know the restart worked when:
 
 ## macOS Homebrew Python: PEP 668
 
-If you're on macOS with Homebrew Python and you want to use the standalone CLI (`pip install tailtester`), you'll hit PEP 668's externally-managed-environment protection:
+If you're on macOS with Homebrew Python and you want to use the standalone CLI (`python3 -m pip install tailtester`), you'll hit PEP 668's externally-managed-environment protection:
 
 ```
 error: externally-managed-environment
@@ -55,7 +62,7 @@ After this, the `tailtest` command is on your PATH and runs against an isolated 
 **Quick fix: `--break-system-packages`** (NOT recommended for shared environments):
 
 ```bash
-pip install --break-system-packages tailtester
+python3 -m pip install --break-system-packages tailtester
 ```
 
 This installs tailtest into your homebrew Python's site-packages. Works, but pollutes the global Python and is fragile across `brew upgrade`.
@@ -67,7 +74,7 @@ The plugin path (the recommended path for most users) does NOT need pip at all. 
 If you have the v1 `tailtester` package installed (the pre-rebuild version with `tailtest scan`, `tailtest run`, `tailtest doctor`), uninstall it BEFORE installing v2:
 
 ```bash
-pip uninstall tailtester
+python3 -m pip uninstall tailtester
 # or
 pipx uninstall tailtester
 # or
@@ -81,7 +88,7 @@ After uninstalling v1, install v2 as described above.
 ## Upgrading the plugin itself
 
 ```bash
-claude plugin upgrade tailtest@avansaber/tailtest
+claude plugin upgrade tailtest@avansaber-tailtest
 # then quit and restart Claude Code
 ```
 
@@ -90,7 +97,7 @@ Same restart-after-upgrade rule applies. Claude Code's hook + skill registries d
 ## Uninstalling
 
 ```bash
-claude plugin uninstall tailtest@avansaber/tailtest
+claude plugin uninstall tailtest@avansaber-tailtest
 # optionally:
 rm -rf .tailtest/  # in any project that has tailtest state
 ```
@@ -104,7 +111,7 @@ If you want to run tailtest outside Claude Code (CI pipelines, raw terminal use,
 ```bash
 pipx install tailtester
 # or, on a vanilla Python:
-pip install tailtester
+python3 -m pip install tailtester
 ```
 
 After install, the `tailtest` command is on your PATH:
