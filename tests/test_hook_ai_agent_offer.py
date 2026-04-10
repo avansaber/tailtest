@@ -3,6 +3,7 @@
 Covers:
 - SessionStart one-time AI-agent offer logic
 - PostToolUse AI checks depth-mode branch
+- End-to-end: first-session AI offer appears in run() output and flag is written
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import pytest
 from tailtest.core.scan.profile import AISurface, ProjectProfile, ScanStatus
 from tailtest.hook.post_tool_use import _format_additional_context, _maybe_build_ai_checks_note
 from tailtest.hook.session_start import _maybe_build_ai_offer
+from tailtest.hook.session_start import run as session_start_run
 
 
 # ---------------------------------------------------------------------------
@@ -262,3 +264,109 @@ def test_format_additional_context_no_ai_checks_note_when_none() -> None:
     data = json.loads(output_json)
     ctx = data["hookSpecificOutput"]["additionalContext"]
     assert "AI checks" not in ctx
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: AI offer surfaces through run() and flag is written (Task 3.8)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_ai_agent_first_session_offer_in_output(tmp_path: Path) -> None:
+    """AI-agent project, first session: run() includes the offer and writes the flag.
+
+    Verifies the full pipeline: run() -> _maybe_build_ai_offer() -> message appended.
+    The flag file must exist after run() completes so subsequent sessions never
+    repeat the offer.
+    """
+    # Build a minimal project so ConfigLoader does not blow up.
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "agent.py").write_text("def run_agent(): pass\n")
+
+    # Build a profile that looks like an AI agent project.
+    agent_profile = MagicMock()
+    agent_profile.scan_status = ScanStatus.OK
+    agent_profile.primary_language = "python"
+    agent_profile.languages = {"python": 3}
+    agent_profile.ai_surface = AISurface.AGENT
+    agent_profile.ai_checks_enabled = None  # user has not decided yet
+    agent_profile.likely_vibe_coded = False
+    agent_profile.frameworks_detected = []
+    agent_profile.model_copy.return_value = agent_profile
+
+    with (
+        patch("tailtest.hook.session_start.ProjectScanner") as mock_scanner_cls,
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+    ):
+        mock_scanner = MagicMock()
+        mock_scanner.load_profile.return_value = None  # no cache -> fresh scan
+        mock_scanner.scan_shallow.return_value = agent_profile
+        mock_scanner.save_profile.return_value = None
+        mock_scanner_cls.return_value = mock_scanner
+
+        mock_engine = MagicMock()
+        mock_engine.compute.return_value = []
+        mock_engine_cls.return_value = mock_engine
+
+        result = await session_start_run('{"session_id": "s1"}', project_root=tmp_path)
+
+    assert result.stdout_json is not None
+    envelope = json.loads(result.stdout_json)
+    context = envelope["hookSpecificOutput"]["additionalContext"]
+
+    # The AI offer must appear in the message.
+    assert "AI agent detected" in context
+    assert "accept-ai-checks" in context
+    assert "dismiss-ai-checks" in context
+
+    # The flag file must have been written so the offer never repeats.
+    flag_path = tmp_path / ".tailtest" / "ai_offer_shown.flag"
+    assert flag_path.exists(), "ai_offer_shown.flag must be created after first offer"
+
+
+@pytest.mark.asyncio
+async def test_run_ai_agent_second_session_no_offer(tmp_path: Path) -> None:
+    """AI-agent project, flag already set: run() must NOT include the offer.
+
+    Verifies that the flag-file gate works end-to-end through run().
+    """
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "agent.py").write_text("def run_agent(): pass\n")
+
+    # Pre-create the flag so this simulates a second-or-later session.
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir(parents=True, exist_ok=True)
+    (tailtest_dir / "ai_offer_shown.flag").write_text("", encoding="utf-8")
+
+    agent_profile = MagicMock()
+    agent_profile.scan_status = ScanStatus.OK
+    agent_profile.primary_language = "python"
+    agent_profile.languages = {"python": 3}
+    agent_profile.ai_surface = AISurface.AGENT
+    agent_profile.ai_checks_enabled = None
+    agent_profile.likely_vibe_coded = False
+    agent_profile.frameworks_detected = []
+    agent_profile.model_copy.return_value = agent_profile
+
+    with (
+        patch("tailtest.hook.session_start.ProjectScanner") as mock_scanner_cls,
+        patch("tailtest.hook.session_start.RecommendationEngine") as mock_engine_cls,
+    ):
+        mock_scanner = MagicMock()
+        mock_scanner.load_profile.return_value = None
+        mock_scanner.scan_shallow.return_value = agent_profile
+        mock_scanner.save_profile.return_value = None
+        mock_scanner_cls.return_value = mock_scanner
+
+        mock_engine = MagicMock()
+        mock_engine.compute.return_value = []
+        mock_engine_cls.return_value = mock_engine
+
+        result = await session_start_run('{"session_id": "s2"}', project_root=tmp_path)
+
+    assert result.stdout_json is not None
+    envelope = json.loads(result.stdout_json)
+    context = envelope["hookSpecificOutput"]["additionalContext"]
+
+    # The offer must NOT appear when the flag already exists.
+    assert "AI agent detected" not in context
