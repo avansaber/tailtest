@@ -176,6 +176,7 @@ PYTHON_FRAMEWORK_SIGNATURES: dict[str, tuple[str, str]] = {
     "instructor": ("instructor", "agent"),
     "pydantic-ai": ("pydantic-ai", "agent"),
     "claude-agent-sdk": ("claude-agent-sdk", "agent"),
+    "litellm": ("litellm", "agent"),
     "fastapi": ("fastapi", "web"),
     "django": ("django", "web"),
     "flask": ("flask", "web"),
@@ -571,6 +572,7 @@ _AGENT_FRAMEWORK_NAMES: frozenset[str] = frozenset(
         "pydantic-ai",
         "claude-agent-sdk",
         "vercel-ai-sdk",
+        "litellm",
     }
 )
 
@@ -590,6 +592,7 @@ _AI_IMPORT_PATTERNS = [
     re.compile(r"(?:from|import)\s+langchain(?:\s|\b|\.)"),
     re.compile(r"(?:from|import)\s+langgraph(?:\s|\b|\.)"),
     re.compile(r"(?:from|import)\s+crewai(?:\s|\b|\.)"),
+    re.compile(r"(?:from|import)\s+litellm(?:\s|\b|\.)"),
     re.compile(r"from\s+['\"]@anthropic-ai/sdk['\"]"),
     re.compile(r"from\s+['\"]openai['\"]"),
     re.compile(r"from\s+['\"]@langchain"),
@@ -601,6 +604,16 @@ _SYSTEM_PROMPT_PATTERNS = [
     re.compile(r"'''\s*You are\s", re.IGNORECASE),
     re.compile(r'system_prompt\s*[:=]\s*["\']', re.IGNORECASE),
     re.compile(r'SYSTEM_PROMPT\s*[:=]\s*["\']'),
+]
+
+# Weak signal: subprocess calls that reference the claude CLI binary.
+# Matches patterns like subprocess.run(["claude", ...]),
+# asyncio.create_subprocess_exec("claude", ...), etc.
+# This is intentionally broad -- a false positive here is low cost.
+_SUBPROCESS_CLAUDE_PATTERNS = [
+    re.compile(r'subprocess\.[a-z_]+\s*\([^)]*["\']claude["\']', re.IGNORECASE),
+    re.compile(r'create_subprocess_exec\s*\(\s*["\']claude["\']', re.IGNORECASE),
+    re.compile(r'Popen\s*\(\s*\[["\']claude["\']', re.IGNORECASE),
 ]
 
 
@@ -654,6 +667,22 @@ def detect_ai_surface(
     if system_prompt_hits > 0:
         signals.append(f"system_prompts:{system_prompt_hits}")
 
+    # Weak signal: subprocess calls invoking the claude CLI binary.
+    # Only checked when we have no strong import-based evidence already.
+    subprocess_claude_hits = 0
+    if not import_hits and not agent_frameworks and not sdk_frameworks:
+        for f in source_files:
+            try:
+                content = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for pattern in _SUBPROCESS_CLAUDE_PATTERNS:
+                if pattern.search(content):
+                    subprocess_claude_hits += 1
+                    break
+        if subprocess_claude_hits > 0:
+            signals.append(f"subprocess_claude:{subprocess_claude_hits}_files")
+
     # Verdict logic:
     if agent_frameworks:
         return AISurface.AGENT, AIConfidence.HIGH, signals
@@ -664,7 +693,11 @@ def detect_ai_surface(
     if sdk_frameworks:
         return AISurface.UTILITY, AIConfidence.MEDIUM, signals
     if import_hits:
-        # Imports without a declared dep — unusual but possible (installed globally?)
+        # Imports without a declared dep -- unusual but possible (installed globally?)
+        return AISurface.UTILITY, AIConfidence.LOW, signals
+    if subprocess_claude_hits > 0:
+        # Weak signal: project shells out to the claude CLI without importing an SDK.
+        # Could be a vibe-coded orchestrator or a wrapper script. Low confidence.
         return AISurface.UTILITY, AIConfidence.LOW, signals
     return AISurface.NONE, AIConfidence.HIGH, signals
 
