@@ -97,6 +97,7 @@ Honest expectations for alpha.2:
 - No validator subagent that critiques Claude's code. Phase 5.
 - No AI-agent red team. Phase 6.
 - No Rust runner. Phase 4.5. Cargo support is on the roadmap.
+- No `node --test` (Node's built-in test runner), no ava, no mocha, no tape. Phase 4.5 batch ships these alongside the Rust runner. JS/TS users on alpha.2 need vitest or jest.
 - No multi-language SCA beyond Python + JS. Go / Rust / Java come later.
 - No EPSS / KEV / NVD severity enrichment for SCA findings. Phase 6 polish.
 - No SCA discovery for projects without a `pyproject.toml` or `package.json`. Phase 3 design question; we know about it.
