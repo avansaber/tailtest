@@ -175,7 +175,7 @@ async def run(
     # the offer fires at most once total (not once per session).
     if profile is not None and not _profile_is_empty(profile) and scan_status != "failed":
         ai_offer = _maybe_build_ai_offer(profile, tailtest_dir)
-        if ai_offer:
+        if ai_offer and len(message.encode("utf-8")) < 1800:
             message = f"{message}\n{ai_offer}"
 
     envelope = {
