@@ -8,11 +8,14 @@ of every session with ``matcher: startup`` per
 independently.
 
 This file is intentionally tiny:
-1. Install the SIGINT handler (audit gap #16, same as PostToolUse).
-2. Read stdin as text.
-3. Call the async ``run()`` from the package.
-4. Print the returned JSON string to stdout (if any).
-5. Exit 0.
+1. Bootstrap the python interpreter via ``_bootstrap`` so that
+   ``import tailtest.hook`` is guaranteed to succeed (Phase 7
+   Task 7.4a — same fix as the PostToolUse shim).
+2. Install the SIGINT handler (audit gap #16, same as PostToolUse).
+3. Read stdin as text.
+4. Call the async ``run()`` from the package.
+5. Print the returned JSON string to stdout (if any).
+6. Exit 0.
 
 Any unhandled library exception returns 0 silently. Session start
 must never block or fail; a broken state surfaces in
@@ -22,9 +25,15 @@ must never block or fail; a broken state surfaces in
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
 import sys
 from pathlib import Path
+
+# Phase 7 Task 7.4a: ensure the script's directory is on sys.path
+# so we can import the sibling _bootstrap.py module. Same rationale
+# as the PostToolUse shim.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def _install_sigint_handler() -> None:
@@ -41,6 +50,13 @@ def _install_sigint_handler() -> None:
 
 def main() -> int:
     _install_sigint_handler()
+
+    # Phase 7 Task 7.4a: bootstrap the python interpreter so the
+    # tailtest.hook import below cannot fail because Claude Code
+    # invoked this shim with the wrong python3.
+    from _bootstrap import bootstrap_or_die
+
+    bootstrap_or_die(__file__)
 
     try:
         stdin_text = sys.stdin.read()

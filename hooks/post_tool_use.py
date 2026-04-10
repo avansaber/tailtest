@@ -7,10 +7,14 @@ every Edit/Write/MultiEdit. The real logic lives in
 
 This file is intentionally tiny. It:
 
-1. Reads stdin as text.
-2. Calls the async ``run()`` from the package.
-3. Prints the returned JSON string to stdout (if any).
-4. Exits 0.
+1. Bootstraps the python interpreter via ``_bootstrap`` so that
+   ``import tailtest.hook`` is guaranteed to succeed (Phase 7
+   Task 7.4a — fixes the case where the system ``python3`` on
+   PATH is not the python that has tailtest installed).
+2. Reads stdin as text.
+3. Calls the async ``run()`` from the package.
+4. Prints the returned JSON string to stdout (if any).
+5. Exits 0.
 
 SIGINT handling (audit gap #16) is installed here rather than in the
 library code because the library runs in-process from the test suite
@@ -20,9 +24,18 @@ where we do not want to hijack signal handlers.
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
 import sys
 from pathlib import Path
+
+# Phase 7 Task 7.4a: ensure the script's directory is on sys.path
+# so we can import the sibling _bootstrap.py module. Python normally
+# adds the script directory to sys.path[0] automatically, but some
+# launchers (and re-execs that pass an absolute script path) skip
+# that step. Make it explicit so the import below cannot fail for
+# the wrong reason.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def _install_sigint_handler() -> None:
@@ -48,6 +61,15 @@ def _install_sigint_handler() -> None:
 
 def main() -> int:
     _install_sigint_handler()
+
+    # Phase 7 Task 7.4a: bootstrap the python interpreter so the
+    # `import tailtest.hook` below cannot fail because Claude Code
+    # invoked this shim with the wrong python3. On unrecoverable
+    # failure, bootstrap_or_die writes a clear stderr message and
+    # raises SystemExit(0) so the hot loop doesn't block.
+    from _bootstrap import bootstrap_or_die
+
+    bootstrap_or_die(__file__)
 
     try:
         stdin_text = sys.stdin.read()
