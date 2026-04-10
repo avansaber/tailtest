@@ -318,23 +318,64 @@ def _detect_js_frameworks(root: Path) -> list[DetectedFramework]:
     return results
 
 
-def _detect_rust_frameworks(root: Path) -> list[DetectedFramework]:
-    """Scan workspace and crate Cargo.toml files for AI-signal dependencies."""
-    # Collect all Cargo.toml files: root + any workspace members.
+# Keywords in workspace member crate names that signal an AI agent project.
+# Matched case-insensitively against the crate name (not path component).
+_RUST_AI_CRATE_NAME_SIGNALS: frozenset[str] = frozenset(
+    {"claude", "anthropic", "openai", "llm", "gpt", "gemini", "copilot", "ai-agent"}
+)
+
+
+def _collect_cargo_tomls(root: Path) -> list[Path]:
+    """Return all Cargo.toml files reachable from ``root``.
+
+    Handles both explicit member paths (``crates/foo``) and glob patterns
+    (``crates/*``) in the workspace ``members`` list.
+    """
     cargo_tomls: list[Path] = []
     root_toml = root / "Cargo.toml"
-    if root_toml.exists():
-        cargo_tomls.append(root_toml)
-        try:
-            data = tomllib.loads(root_toml.read_text(encoding="utf-8"))
-        except (OSError, tomllib.TOMLDecodeError):
-            data = {}
-        members = (data.get("workspace") or {}).get("members") or []
-        if isinstance(members, list):
-            for member in members:
-                member_toml = root / str(member) / "Cargo.toml"
-                if member_toml.exists() and member_toml not in cargo_tomls:
-                    cargo_tomls.append(member_toml)
+    if not root_toml.exists():
+        return cargo_tomls
+
+    cargo_tomls.append(root_toml)
+    try:
+        data = tomllib.loads(root_toml.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return cargo_tomls
+
+    members = (data.get("workspace") or {}).get("members") or []
+    if not isinstance(members, list):
+        return cargo_tomls
+
+    for member in members:
+        member_str = str(member)
+        if "*" in member_str or "?" in member_str:
+            # Glob pattern: expand it relative to root.
+            for matched in root.glob(member_str):
+                candidate = matched / "Cargo.toml"
+                if candidate.exists() and candidate not in cargo_tomls:
+                    cargo_tomls.append(candidate)
+        else:
+            candidate = root / member_str / "Cargo.toml"
+            if candidate.exists() and candidate not in cargo_tomls:
+                cargo_tomls.append(candidate)
+
+    return cargo_tomls
+
+
+def _detect_rust_frameworks(root: Path) -> list[DetectedFramework]:
+    """Scan workspace and crate Cargo.toml files for AI-signal dependencies.
+
+    Two detection strategies:
+
+    1. Dependency names: scan ``[dependencies]`` and ``[dev-dependencies]``
+       for known AI framework crate names (``RUST_FRAMEWORK_SIGNATURES``).
+
+    2. Workspace member crate names: if a workspace member crate is named
+       using an AI keyword (e.g. ``rusty-claude-cli``, ``mock-anthropic-service``),
+       emit an ``agent`` framework signal. This catches projects like claw-code
+       that implement their own Anthropic API client rather than importing one.
+    """
+    cargo_tomls = _collect_cargo_tomls(root)
 
     results: list[DetectedFramework] = []
     seen: set[str] = set()
@@ -345,7 +386,7 @@ def _detect_rust_frameworks(root: Path) -> list[DetectedFramework]:
             logger.debug("Failed to parse %s: %s", toml_path, exc)
             continue
 
-        # Collect all dependency names from [dependencies] and [dev-dependencies].
+        # Strategy 1: dependency-name matching.
         dep_names: set[str] = set()
         for section in ("dependencies", "dev-dependencies"):
             section_data = data.get(section) or {}
@@ -367,6 +408,28 @@ def _detect_rust_frameworks(root: Path) -> list[DetectedFramework]:
                         category=category,
                     )
                 )
+
+        # Strategy 2: AI keyword in the crate's own package name.
+        pkg_name = (data.get("package") or {}).get("name", "")
+        if isinstance(pkg_name, str) and pkg_name:
+            norm_name = pkg_name.lower().replace("_", "-")
+            for signal in _RUST_AI_CRATE_NAME_SIGNALS:
+                if signal in norm_name:
+                    framework_key = f"crate:{pkg_name}"
+                    if framework_key not in seen:
+                        seen.add(framework_key)
+                        results.append(
+                            DetectedFramework(
+                                name=pkg_name,
+                                confidence=AIConfidence.MEDIUM,
+                                source=str(toml_path.relative_to(root)
+                                           if toml_path.is_relative_to(root)
+                                           else toml_path.name),
+                                category="agent",
+                            )
+                        )
+                    break  # one signal per crate is enough
+
     return results
 
 
@@ -725,15 +788,26 @@ def detect_ai_surface(
     3. System-prompt string literals (weak signal — cosmetic but telling)
     """
     signals: list[str] = []
-    framework_names = {f.name for f in frameworks}
 
-    # Signal 1: strong agent frameworks
-    agent_frameworks = framework_names & _AGENT_FRAMEWORK_NAMES
+    # Signal 1: strong agent frameworks -- matched by name against the known
+    # set OR by the framework's own category="agent" declaration. The second
+    # path catches dynamically-detected Rust crate names (e.g. claw-code's
+    # "rusty-claude-cli" and "mock-anthropic-service") that cannot be in the
+    # static name set because they are project-specific.
+    agent_frameworks: set[str] = {
+        f.name
+        for f in frameworks
+        if f.name in _AGENT_FRAMEWORK_NAMES or f.category == "agent"
+    }
     if agent_frameworks:
         signals.extend(f"framework:{name}" for name in sorted(agent_frameworks))
 
     # Signal 2: SDK frameworks (could be utility or agent)
-    sdk_frameworks = framework_names & _SDK_FRAMEWORK_NAMES
+    sdk_frameworks: set[str] = {
+        f.name
+        for f in frameworks
+        if f.name in _SDK_FRAMEWORK_NAMES or f.category == "sdk"
+    }
     if sdk_frameworks:
         signals.extend(f"sdk:{name}" for name in sorted(sdk_frameworks))
 
