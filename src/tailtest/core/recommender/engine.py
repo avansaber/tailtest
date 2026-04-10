@@ -101,7 +101,20 @@ class RecommendationEngine:
             seen_ids.add(rec.id)
             results.append(rec)
 
-        results.sort(key=lambda r: _priority_order.get(r.priority, 99))
+        # Primary sort: by priority (high first).
+        # Secondary sort when vibe-coded: add_test kind is promoted to
+        # the front of its priority tier so the most actionable item
+        # for a vibe-coded project appears first.
+        likely_vibe_coded = getattr(profile, "likely_vibe_coded", False)
+        if likely_vibe_coded:
+            results.sort(
+                key=lambda r: (
+                    _priority_order.get(r.priority, 99),
+                    0 if r.kind == RecommendationKind.add_test else 1,
+                )
+            )
+        else:
+            results.sort(key=lambda r: _priority_order.get(r.priority, 99))
         return results
 
     # ------------------------------------------------------------------

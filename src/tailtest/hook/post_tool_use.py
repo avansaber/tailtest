@@ -79,6 +79,10 @@ logger = logging.getLogger(__name__)
 # Audit gap #5: same 5KB cap as the run_tests MCP tool.
 _MAX_ADDITIONAL_CONTEXT_BYTES = 5 * 1024
 
+# Tracks which files have already received the vibe-coder gen offer this
+# session. Reset per process (per session), which is correct.
+_gen_offered: set[str] = set()
+
 _SUPPORTED_TOOLS = {"Edit", "Write", "MultiEdit"}
 
 # Manifest files that should trigger a rescan of the project profile
@@ -331,6 +335,17 @@ async def run(
             payload=payload,
         )
 
+    # Vibe-coder proactive gen offer (Phase 3 Task 3.7). Fires when the
+    # project is vibe-coded, the changed file is a .py file with a
+    # function definition, and no tests ran for that file this invocation.
+    # At most once per file per session (tracked by _gen_offered set).
+    vibe_gen_offer: str | None = _maybe_vibe_gen_offer(
+        root=root,
+        changed_files=changed_files,
+        payload=payload,
+        tests_ran=batch.tests_passed + batch.tests_failed,
+    )
+
     # Recommendation surface (Phase 3 Task 3.4). Fire at most once per
     # session via a flag file. SOFT append -- never replaces test output.
     rec_surface_line = _maybe_surface_rec_line(root)
@@ -363,6 +378,7 @@ async def run(
         batch,
         manifest_rescanned=manifest_rescanned,
         auto_offer_suggestions=auto_offer_suggestions,
+        vibe_gen_offer=vibe_gen_offer,
         rec_surface_line=rec_surface_line,
         ai_checks_note=ai_checks_note,
         llm_judge_lines=llm_judge_lines,
@@ -477,6 +493,74 @@ def _maybe_surface_rec_line(root: Path) -> str | None:
         return f"tailtest: {count} new {noun} -- run /tailtest for details."
     except Exception as exc:  # noqa: BLE001
         logger.warning("rec surface check failed: %s", exc)
+        return None
+
+
+def _maybe_vibe_gen_offer(
+    *,
+    root: Path,
+    changed_files: list[Path],
+    payload: dict,
+    tests_ran: int,
+) -> str | None:
+    """Return a proactive gen offer string, or None.
+
+    Fires when ALL of these are true:
+    - profile.likely_vibe_coded is True
+    - The changed file is a .py file that contains a function definition
+      (i.e. "def " appears in the file's current content)
+    - No tests ran for this invocation (tests_ran == 0)
+    - The file has not already received this offer in the current session
+      (tracked by the module-level _gen_offered set)
+
+    All failures are swallowed and logged -- this path must never raise.
+    """
+    try:
+        # Only fire for a single primary .py file.
+        if not changed_files:
+            return None
+        primary = changed_files[0]
+        if primary.suffix.lower() != ".py":
+            return None
+
+        # Check vibe-coded flag from the saved profile.
+        scanner = ProjectScanner(root)
+        profile = scanner.load_profile()
+        if profile is None:
+            return None
+        if not getattr(profile, "likely_vibe_coded", False):
+            return None
+
+        # Only fire when no tests ran this invocation.
+        if tests_ran > 0:
+            return None
+
+        # Check that the file contains a function definition.
+        try:
+            content = primary.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        if "def " not in content:
+            return None
+
+        # Check the per-session deduplication set.
+        file_key = str(primary.resolve())
+        if file_key in _gen_offered:
+            return None
+        _gen_offered.add(file_key)
+
+        # Build a display path relative to root for readability.
+        try:
+            display_path = str(primary.resolve().relative_to(root))
+        except ValueError:
+            display_path = str(primary)
+
+        return (
+            f"tailtest: no tests found for this function. "
+            f"Run /tailtest:gen {display_path} to generate a starter test."
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("vibe gen offer check failed: %s", exc)
         return None
 
 
@@ -795,6 +879,7 @@ def _format_additional_context(
     *,
     manifest_rescanned: bool,
     auto_offer_suggestions: list[str] | None = None,
+    vibe_gen_offer: str | None = None,
     rec_surface_line: str | None = None,
     ai_checks_note: str | None = None,
     llm_judge_lines: list[str] | None = None,
@@ -860,6 +945,11 @@ def _format_additional_context(
         lines.append("")  # blank separator
         for suggestion in auto_offer_suggestions:
             lines.append(suggestion)
+
+    # Vibe-coder gen offer (Phase 3 Task 3.7): proactive offer to generate
+    # a starter test when the project is vibe-coded and no tests ran.
+    if vibe_gen_offer:
+        lines.append(vibe_gen_offer)
 
     # Recommendation surface: one line, once per session, always last.
     if rec_surface_line:
