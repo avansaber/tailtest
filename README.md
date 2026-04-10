@@ -22,6 +22,8 @@ claude plugin install tailtest@avansaber/tailtest
 
 After the first edit, look for `tailtest: N/N tests passed · M.Ms` in Claude's next-turn context. That is the hot loop talking to Claude. The full report lands at `.tailtest/reports/latest.html` and `.tailtest/reports/latest.json`.
 
+For the full walkthrough including troubleshooting, see [`docs/quickstart.md`](docs/quickstart.md). For install gotchas (PEP 668, v1 upgrade, hook Python resolution), see [`docs/install.md`](docs/install.md). For the full config schema, see [`docs/configuration.md`](docs/configuration.md).
+
 ## What tailtest does today (alpha.2)
 
 - **Runs your tests on every edit**, using the project's native runner (pytest for Python; vitest or jest for JS/TS) with native test impact analysis so only the affected tests run.
