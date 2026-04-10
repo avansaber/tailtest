@@ -179,6 +179,10 @@ class ProjectProfile(BaseModel):
     # Phase 3 Task 3.2: serialized Recommendation objects from deep scan
     recommendations: list[dict] = Field(default_factory=list)
 
+    # Phase 3 Task 3.5: propagated from config.ai_checks_enabled.
+    # None = unset (user has not decided); True = enabled; False = dismissed.
+    ai_checks_enabled: bool | None = None
+
     # --- Convenience helpers ---
 
     def to_json(self, *, indent: int = 2) -> str:

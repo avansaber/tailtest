@@ -185,3 +185,9 @@ class Config(BaseModel):
     # Comments live here so the YAML file can carry a header when we
     # write a fresh default. Not serialized back during roundtrips.
     interview_completed: bool = False
+
+    # Phase 3 Task 3.5: AI-specific checks (LLM-judge assertions).
+    # None = user has not decided yet (one-time offer will be shown).
+    # True = enabled (fires at thorough+ depth on agent projects).
+    # False = user dismissed the offer (never ask again).
+    ai_checks_enabled: bool | None = None

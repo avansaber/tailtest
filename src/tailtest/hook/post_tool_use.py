@@ -62,6 +62,7 @@ from tailtest.core.config import Config, ConfigLoader, DepthMode
 from tailtest.core.findings.schema import Finding, FindingBatch
 from tailtest.core.runner import BaseRunner, RunnerNotAvailable, get_default_registry
 from tailtest.core.scan import ProjectScanner
+from tailtest.core.scan.profile import AISurface
 from tailtest.security.sast.semgrep import SemgrepRunner
 from tailtest.security.sca.manifests import (
     PackageRef,
@@ -333,13 +334,54 @@ async def run(
     # session via a flag file. SOFT append -- never replaces test output.
     rec_surface_line = _maybe_surface_rec_line(root)
 
+    # AI checks depth-mode branch (Phase 3 Task 3.5). When the project is
+    # an AI agent, ai_checks_enabled is True, and the depth is thorough or
+    # above, note that AI checks are active. Task 3.6 will replace this
+    # with the actual LLM-judge invocation.
+    ai_checks_note = _maybe_build_ai_checks_note(root, config)
+
     stdout_json = _format_additional_context(
         batch,
         manifest_rescanned=manifest_rescanned,
         auto_offer_suggestions=auto_offer_suggestions,
         rec_surface_line=rec_surface_line,
+        ai_checks_note=ai_checks_note,
     )
     return HookResult(stdout_json=stdout_json, reason="ok")
+
+
+def _maybe_build_ai_checks_note(root: Path, config: Config) -> str | None:
+    """Return an AI checks active note, or None.
+
+    Fires when ALL of these are true:
+    - profile.ai_surface == AISurface.AGENT
+    - profile.ai_checks_enabled is True (user accepted)
+    - config.depth is thorough or paranoid
+
+    Returns None silently for non-agent projects, dismissed users, or
+    standard/quick/off depth. All failures are caught and logged.
+    """
+    try:
+        if config.depth not in (DepthMode.THOROUGH, DepthMode.PARANOID):
+            return None
+
+        scanner = ProjectScanner(root)
+        profile = scanner.load_profile()
+        if profile is None:
+            return None
+
+        if profile.ai_surface != AISurface.AGENT:
+            return None
+
+        if profile.ai_checks_enabled is not True:
+            return None
+
+        _ai_checks_should_run = True  # noqa: F841 -- Task 3.6 will consume via helper
+        logger.debug("AI checks enabled for this run -- LLM-judge will fire in Task 3.6")
+        return "tailtest: AI checks active (thorough depth). LLM-judge assertions will run on agent outputs."
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AI checks note failed: %s", exc)
+        return None
 
 
 def _maybe_surface_rec_line(root: Path) -> str | None:
@@ -708,6 +750,7 @@ def _format_additional_context(
     manifest_rescanned: bool,
     auto_offer_suggestions: list[str] | None = None,
     rec_surface_line: str | None = None,
+    ai_checks_note: str | None = None,
 ) -> str:
     """Build the hookSpecificOutput JSON payload for Claude's next turn.
 
@@ -774,6 +817,11 @@ def _format_additional_context(
     # Recommendation surface: one line, once per session, always last.
     if rec_surface_line:
         lines.append(rec_surface_line)
+
+    # AI checks active note (Phase 3 Task 3.5): appended after rec surface
+    # so findings remain the most prominent item in the context.
+    if ai_checks_note:
+        lines.append(ai_checks_note)
 
     additional_context = "\n".join(lines)
     additional_context = _truncate(additional_context)
