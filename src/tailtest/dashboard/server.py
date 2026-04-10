@@ -1,4 +1,4 @@
-"""Dashboard HTTP + WebSocket server (Phase 4 Task 4.2).
+"""Dashboard HTTP + WebSocket server (Phase 4 Tasks 4.2 and 4.3).
 
 Serves the live tailtest dashboard on ``127.0.0.1`` (localhost only).
 Streams events from ``.tailtest/events.jsonl`` to connected WebSocket
@@ -25,11 +25,19 @@ import json
 import logging
 import signal
 import socket
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import aiohttp.web
 import watchfiles
+
+from tailtest.core.baseline.manager import BaselineManager
+from tailtest.core.config.loader import ConfigLoader
+from tailtest.core.events.writer import EventWriter
+from tailtest.core.findings.schema import FindingBatch
+from tailtest.core.recommendations.store import DismissalStore
+from tailtest.core.scan.scanner import ProjectScanner
 
 logger = logging.getLogger("tailtest.dashboard")
 
@@ -123,6 +131,14 @@ class DashboardServer:
         app.router.add_get("/", self._handle_index)
         app.router.add_get("/live", self._handle_ws)
 
+        # REST API routes (Phase 4 Task 4.3)
+        app.router.add_get("/api/status", self._handle_api_status)
+        app.router.add_get("/api/findings", self._handle_api_findings)
+        app.router.add_get("/api/events", self._handle_api_events)
+        app.router.add_get("/api/coverage", self._handle_api_coverage)
+        app.router.add_post("/api/accept/{recommendation_id}", self._handle_api_accept)
+        app.router.add_post("/api/dismiss/{finding_id}", self._handle_api_dismiss)
+
         app.on_startup.append(self._on_startup)
         app.on_shutdown.append(self._on_shutdown)
 
@@ -204,6 +220,212 @@ class DashboardServer:
             logger.debug("WebSocket client disconnected (remaining: %d)", len(self._ws_clients))
 
         return ws
+
+    # ------------------------------------------------------------------
+    # REST API route handlers (Phase 4 Task 4.3)
+    # ------------------------------------------------------------------
+
+    def _problem(
+        self,
+        status: int,
+        title: str,
+        detail: str,
+    ) -> aiohttp.web.Response:
+        """Return an RFC 7807 Problem Details response."""
+        body = {
+            "type": "about:blank",
+            "title": title,
+            "status": status,
+            "detail": detail,
+        }
+        return aiohttp.web.Response(
+            text=json.dumps(body),
+            status=status,
+            content_type="application/problem+json",
+        )
+
+    async def _handle_api_status(self, _request: aiohttp.web.Request) -> aiohttp.web.Response:
+        """GET /api/status -- project profile, config, and baseline count."""
+        try:
+            project_root = self._tailtest_dir.parent
+            scanner = ProjectScanner(project_root)
+            profile = scanner.load_profile(tailtest_dir=self._tailtest_dir)
+            config = ConfigLoader(self._tailtest_dir).load()
+            baseline_file = BaselineManager(self._tailtest_dir).load()
+            baseline_count = len(baseline_file.entries)
+
+            profile_dict: dict[str, Any] | None = None
+            if profile is not None:
+                profile_dict = json.loads(profile.to_json())
+
+            data: dict[str, Any] = {
+                "profile": profile_dict,
+                "config": {
+                    "depth": config.depth.value,
+                    "ai_checks_enabled": config.ai_checks_enabled,
+                },
+                "baseline_count": baseline_count,
+            }
+            return aiohttp.web.json_response(data)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error in /api/status")
+            return self._problem(500, "Internal Server Error", str(exc))
+
+    async def _handle_api_findings(self, request: aiohttp.web.Request) -> aiohttp.web.Response:
+        """GET /api/findings -- list findings from latest report.
+
+        Query params:
+          kind   -- filter by finding kind string (optional)
+          since  -- ISO timestamp; only return findings on or after this time (optional)
+          limit  -- max results (default 100)
+        """
+        try:
+            report_path = self._tailtest_dir / "reports" / "latest.json"
+            if not report_path.exists():
+                return aiohttp.web.json_response({"findings": [], "total": 0})
+
+            batch = FindingBatch.model_validate_json(report_path.read_text(encoding="utf-8"))
+            findings = batch.findings
+
+            kind_filter = request.rel_url.query.get("kind")
+            if kind_filter:
+                findings = [f for f in findings if f.kind.value == kind_filter]
+
+            since_str = request.rel_url.query.get("since")
+            if since_str:
+                try:
+                    since_dt = datetime.fromisoformat(since_str)
+                    if since_dt.tzinfo is None:
+                        since_dt = since_dt.replace(tzinfo=UTC)
+                    findings = [f for f in findings if f.timestamp >= since_dt]
+                except ValueError:
+                    return self._problem(
+                        400, "Bad Request", f"Invalid 'since' timestamp: {since_str!r}"
+                    )
+
+            limit_str = request.rel_url.query.get("limit", "100")
+            try:
+                limit = int(limit_str)
+            except ValueError:
+                return self._problem(400, "Bad Request", f"Invalid 'limit' value: {limit_str!r}")
+
+            findings = findings[:limit]
+            findings_data = [json.loads(f.model_dump_json()) for f in findings]
+
+            return aiohttp.web.json_response(
+                {"findings": findings_data, "total": len(findings_data)}
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error in /api/findings")
+            return self._problem(500, "Internal Server Error", str(exc))
+
+    async def _handle_api_events(self, request: aiohttp.web.Request) -> aiohttp.web.Response:
+        """GET /api/events -- list events from events.jsonl.
+
+        Query params:
+          since  -- ISO timestamp; only return events on or after this time (optional)
+          limit  -- max results (default 100)
+        """
+        try:
+            events = EventWriter(self._tailtest_dir).read_all()
+
+            # Newest-first order.
+            events = list(reversed(events))
+
+            since_str = request.rel_url.query.get("since")
+            if since_str:
+                try:
+                    since_dt = datetime.fromisoformat(since_str)
+                    if since_dt.tzinfo is None:
+                        since_dt = since_dt.replace(tzinfo=UTC)
+                    events = [e for e in events if e.timestamp >= since_dt]
+                except ValueError:
+                    return self._problem(
+                        400, "Bad Request", f"Invalid 'since' timestamp: {since_str!r}"
+                    )
+
+            limit_str = request.rel_url.query.get("limit", "100")
+            try:
+                limit = int(limit_str)
+            except ValueError:
+                return self._problem(400, "Bad Request", f"Invalid 'limit' value: {limit_str!r}")
+
+            events = events[:limit]
+            events_data = [json.loads(e.model_dump_json()) for e in events]
+
+            return aiohttp.web.json_response({"events": events_data, "total": len(events_data)})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error in /api/events")
+            return self._problem(500, "Internal Server Error", str(exc))
+
+    async def _handle_api_coverage(self, _request: aiohttp.web.Request) -> aiohttp.web.Response:
+        """GET /api/coverage -- delta coverage data from latest report."""
+        try:
+            report_path = self._tailtest_dir / "reports" / "latest.json"
+            if not report_path.exists():
+                return aiohttp.web.json_response({"coverage": {}})
+
+            batch = FindingBatch.model_validate_json(report_path.read_text(encoding="utf-8"))
+            coverage: dict[str, Any] = {}
+            if batch.delta_coverage_pct is not None:
+                coverage["delta_coverage_pct"] = batch.delta_coverage_pct
+            if batch.uncovered_new_lines:
+                coverage["uncovered_new_lines"] = batch.uncovered_new_lines
+
+            return aiohttp.web.json_response({"coverage": coverage})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error in /api/coverage")
+            return self._problem(500, "Internal Server Error", str(exc))
+
+    async def _handle_api_accept(self, request: aiohttp.web.Request) -> aiohttp.web.Response:
+        """POST /api/accept/{recommendation_id} -- mark a recommendation as accepted."""
+        rec_id = request.match_info["recommendation_id"]
+        try:
+            accepted_path = self._tailtest_dir / "accepted_recs.json"
+            accepted: list[str] = []
+            if accepted_path.exists():
+                try:
+                    accepted = json.loads(accepted_path.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    accepted = []
+
+            if rec_id not in accepted:
+                accepted.append(rec_id)
+                tmp = accepted_path.with_suffix(".json.tmp")
+                tmp.write_text(json.dumps(accepted, indent=2), encoding="utf-8")
+                tmp.replace(accepted_path)
+
+            return aiohttp.web.json_response({"ok": True, "id": rec_id})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error in /api/accept/%s", rec_id)
+            return self._problem(500, "Internal Server Error", str(exc))
+
+    async def _handle_api_dismiss(self, request: aiohttp.web.Request) -> aiohttp.web.Response:
+        """POST /api/dismiss/{finding_id} -- dismiss a finding for N days.
+
+        Body (optional JSON): {"days": 7}
+        """
+        finding_id = request.match_info["finding_id"]
+        try:
+            days = 7
+            try:
+                body_bytes = await request.read()
+                if body_bytes.strip():
+                    body = json.loads(body_bytes)
+                    if isinstance(body, dict) and "days" in body:
+                        days = int(body["days"])
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+
+            project_root = self._tailtest_dir.parent
+            store = DismissalStore(project_root)
+            until = datetime.now(UTC) + timedelta(days=days)
+            store.dismiss(finding_id, until)
+
+            return aiohttp.web.json_response({"ok": True, "id": finding_id})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error in /api/dismiss/%s", finding_id)
+            return self._problem(500, "Internal Server Error", str(exc))
 
     # ------------------------------------------------------------------
     # Background tasks
