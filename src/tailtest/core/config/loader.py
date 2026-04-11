@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """ConfigLoader — read/write ``.tailtest/config.yaml``.
 
 Per the audit (gap #4), config is loaded fresh on every PostToolUse

@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """ProjectScanner -- orchestrates the detectors and produces a ProjectProfile.
 
 Phase 1 Task 1.12a. See `detectors.py` for the per-capability logic and

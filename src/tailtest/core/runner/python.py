@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """PythonRunner — pytest adapter (Phase 1 Task 1.2a).
 
 Shells out to `pytest --junitxml=<path>` and parses the JUnit XML output

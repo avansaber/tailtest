@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """HTMLReporter, self-contained HTML report for a ``FindingBatch`` (Phase 2 Task 2.6).
 
 Produces a single HTML file with inline CSS and NO external

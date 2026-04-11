@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """``run_tests`` MCP tool — executes tests and returns a structured FindingBatch."""
 
 from __future__ import annotations

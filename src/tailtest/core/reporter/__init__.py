@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.reporter — findings formatters.
 
 Phase 1 ships the terminal reporter (Task 1.8). Phase 2 adds the HTML

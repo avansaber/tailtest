@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.config — ``.tailtest/config.yaml`` loader + schema.
 
 Phase 1 ships the minimal config: schema version, depth mode, a runners

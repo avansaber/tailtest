@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """OSVLookup, SCA via the OSV API (Phase 2 Task 2.3).
 
 Queries `https://api.osv.dev/v1/querybatch` with a list of

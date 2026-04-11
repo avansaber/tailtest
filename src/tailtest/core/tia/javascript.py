@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """JSTIA, delegator to JSRunner's native related-tests features (Phase 1 Task 1.3 JS half).
 
 Thin wrapper around ``JSRunner.impacted()``. Exists for the same reason

@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """PostToolUse hook runtime (Phase 1 Task 1.5).
 
 The async ``run`` function here is the real implementation. The

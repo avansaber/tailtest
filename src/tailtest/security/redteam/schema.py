@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Attack schema -- Pydantic model for a single red-team attack entry."""
 
 from __future__ import annotations

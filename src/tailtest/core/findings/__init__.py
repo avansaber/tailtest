@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.findings — the unified finding schema.
 
 Every tailtest producer (runners, security scanners, validators, red-team)

@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.recommendations -- Recommendation schema and dismissal store.
 
 See Phase 3 Task 3.2 for the task spec.

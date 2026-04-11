@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.llm — LLM client abstraction for the v0.1 build.
 
 This package wraps the various ways tailtest can talk to an LLM:

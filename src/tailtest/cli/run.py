@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """``tailtest run`` CLI command.
 
 The hot loop in command-line form. Used by:

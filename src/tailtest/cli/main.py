@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest CLI — Click-based entry point.
 
 Phase 1: ``version``, ``mcp-serve``, ``run``, ``doctor``, ``scan``.

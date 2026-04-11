@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Delta coverage, pure functions (Phase 1 Task 1.8a).
 
 Pure helpers for computing "coverage on the lines that this edit

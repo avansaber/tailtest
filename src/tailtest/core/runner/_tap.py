@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Shared TAP (Test Anything Protocol) parser for JS runner adapters.
 
 Used by NodeTestRunner (TAP fallback), AvaRunner, and TapeRunner.

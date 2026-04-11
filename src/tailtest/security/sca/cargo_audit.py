@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """cargo audit integration for Rust security scanning (Phase 4.5 Task 4.5.4).
 
 ``cargo audit`` scans a ``Cargo.lock`` for known vulnerabilities using the

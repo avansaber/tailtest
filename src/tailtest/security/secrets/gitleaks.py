@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """GitleaksRunner, secret scanning for tailtest (Phase 2 Task 2.1).
 
 Shells out to ``gitleaks detect --source <path> --no-git

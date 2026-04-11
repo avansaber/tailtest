@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """AvaRunner -- ava test framework adapter (Phase 4.5.9).
 
 Ava is a popular modern test framework for Node.js and TypeScript projects.

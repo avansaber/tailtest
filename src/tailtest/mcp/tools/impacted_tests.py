@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """``impacted_tests`` MCP tool — returns test IDs affected by a set of changed files."""
 
 from __future__ import annotations

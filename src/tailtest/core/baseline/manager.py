@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """BaselineManager — lazy + kind-aware baseline policy (Phase 1 Task 1.7).
 
 The baseline is a YAML file at `.tailtest/baseline.yaml` listing findings

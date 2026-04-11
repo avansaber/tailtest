@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """RustRunner -- cargo test adapter (Phase 4.5 Task 4.5.1).
 
 Shells out to `cargo test` and parses the plain-text output into

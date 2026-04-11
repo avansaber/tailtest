@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """BaseTool — shared abstract class for every tailtest MCP tool.
 
 Each tool subclass sets ``name``, ``description``, and ``input_schema``

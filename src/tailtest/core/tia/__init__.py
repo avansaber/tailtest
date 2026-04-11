@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.tia — test impact analysis.
 
 Given a changed set of files, a TIA provider returns the list of test IDs

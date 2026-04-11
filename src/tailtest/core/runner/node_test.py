@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """NodeTestRunner -- Node.js built-in ``node --test`` adapter (Phase 4.5.9).
 
 Node's built-in test runner has been stable since Node 20 and available

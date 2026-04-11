@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.baseline — per-project baseline file management.
 
 Phase 1 Task 1.7. The baseline file at `.tailtest/baseline.yaml` holds the

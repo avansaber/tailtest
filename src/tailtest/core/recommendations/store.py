@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Persistent store for dismissed recommendations."""
 
 from __future__ import annotations

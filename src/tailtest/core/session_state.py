@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Session-scoped state for debouncing hook suggestions (Phase 1 Task 1.5a).
 
 Stored at ``.tailtest/session-state.json`` and read + rewritten by the

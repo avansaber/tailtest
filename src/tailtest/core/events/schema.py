@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Event schema — the append-only bus between engine and dashboard.
 
 Per Phase 1 Task 1.5.5 (backported from Phase 4 per the audit). Every

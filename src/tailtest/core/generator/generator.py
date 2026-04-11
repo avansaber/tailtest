@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """TestGenerator, the Phase 1 test-generation engine (Task 1.12b).
 
 Takes a source file, detects its language and framework, builds a

@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Prompt templates for the test generator (Phase 1 Task 1.12b).
 
 Each supported language has:

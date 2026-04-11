@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """MCP server — JSON-RPC 2.0 over stdio scaffold.
 
 Phase 1: responds to ``initialize``, ``tools/list`` (6 tools), and

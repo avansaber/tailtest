@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """TapeRunner -- tape test framework adapter (Phase 4.5.9).
 
 Tape is a minimal TAP-producing test library for Node.js. Unlike mocha

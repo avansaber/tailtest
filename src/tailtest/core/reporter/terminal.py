@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """TerminalReporter — compact ANSI-colored output for the hot loop (Phase 1 Task 1.8).
 
 Format goals:

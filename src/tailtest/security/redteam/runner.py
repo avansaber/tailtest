@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Red-team runner -- Phase 6 Task 6.2.
 
 Runs the 64-attack catalog against the project's agent code at ``paranoid``

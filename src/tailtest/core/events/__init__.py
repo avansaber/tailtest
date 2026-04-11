@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.events — append-only event stream for the dashboard.
 
 Every tailtest hook run, scan, finding emission, and config change writes

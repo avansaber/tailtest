@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.scan — project scanner + `ProjectProfile` schema.
 
 Phase 1 Task 1.12a. The scanner walks a project directory and produces a

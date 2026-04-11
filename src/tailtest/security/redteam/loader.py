@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Loader for the red-team attack catalog (data/redteam/attacks.yaml)."""
 
 from __future__ import annotations

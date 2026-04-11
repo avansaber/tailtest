@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Detector functions — pure logic for each scanner capability (Phase 1 Task 1.12a).
 
 Each detector takes a project root path (and sometimes a pre-walked file list)

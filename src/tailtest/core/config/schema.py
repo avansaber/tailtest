@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Config schema for ``.tailtest/config.yaml``.
 
 Phase 1 shape with Phase 2 Task 2.9 extensions. Every field has a

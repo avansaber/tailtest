@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Unified `Finding` schema — the load-bearing primitive of the validator pipeline.
 
 Every tailtest finding — test failure, lint warning, secret leak, SAST hit, SCA

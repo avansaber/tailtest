@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Recommendation schema for tailtest opportunity detection."""
 
 from __future__ import annotations

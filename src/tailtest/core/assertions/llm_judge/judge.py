@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """LLM-judge stub — minimal Phase 0 definitions to unblock ``tailtest.llm.claude_cli``.
 
 The real implementation lands in Phase 3 (opportunity detection). In

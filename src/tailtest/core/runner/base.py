@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """BaseRunner interface — the shared abstraction every test runner implements.
 
 Per Phase 1 Task 1.2. Every language-specific runner (Python, TS/JS, Rust,

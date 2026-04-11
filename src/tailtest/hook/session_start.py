@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """SessionStart hook runtime (Phase 1 Task 1.6).
 
 Runs once at Claude Code session startup. Responsibilities per the

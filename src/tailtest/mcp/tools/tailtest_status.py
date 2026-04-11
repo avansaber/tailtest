@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """``tailtest_status`` MCP tool — returns config, last run summary, and scan snapshot."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.mcp.tools — the 7 MCP tools exposed by ``tailtest mcp-serve``.
 
 Phase 1 Task 1.4. Each tool is implemented as a subclass of :class:`BaseTool`

@@ -1,25 +1,20 @@
 # Security Policy
 
-> **Pre-alpha — the project is not yet ready for production use.**
-> Until tailtest ships its `0.1.0` public release, it should not be trusted for any security-sensitive workload.
-
 ## Supported Versions
 
-Once `0.1.0` ships, only the latest released version is supported with security updates. Pre-release versions (alphas, betas, release candidates) are not covered by the security policy.
+Only the latest released version is supported with security updates.
 
-| Version        | Supported         |
-|----------------|-------------------|
-| `0.1.0-alpha.0` (current) | ⚠️ Pre-alpha, no guarantees |
-| Future `0.1.x` | ✅ Latest patch only |
-| v0.2.x+        | ✅ Latest patch only |
+| Version  | Supported |
+|----------|-----------|
+| `0.1.1` (current) | ✅ Supported |
+| Older `0.1.x` | ❌ Upgrade to latest |
+| v0.2.x+ | ✅ Latest patch only |
 
 ## Reporting a Vulnerability
 
 If you believe you have found a security vulnerability in tailtest, **please do not open a public GitHub issue**. Instead, contact the maintainer directly via email.
 
-**Email:** `security@tailtest.com` *(placeholder — the mailbox will be live before the `0.1.0` public release)*
-
-Until the domain mailbox is live, reports can be sent to `support@avansaber.com` with a subject line starting with `[TAILTEST SECURITY]`.
+**Email:** `support@avansaber.com` — use subject line `[TAILTEST SECURITY]`
 
 ### What to include
 

@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """``scan_project`` MCP tool — runs the ProjectScanner and returns a ProjectProfile."""
 
 from __future__ import annotations

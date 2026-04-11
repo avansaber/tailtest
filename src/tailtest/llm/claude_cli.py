@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Claude Code CLI judge — uses the ``claude`` subprocess for evaluations.
 
 When running inside Claude Code (``claude`` on PATH), this is the preferred

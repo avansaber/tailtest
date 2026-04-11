@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Dashboard HTTP + WebSocket server (Phase 4 Tasks 4.2 and 4.3).
 
 Serves the live tailtest dashboard on ``127.0.0.1`` (localhost only).

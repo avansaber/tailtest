@@ -42,7 +42,7 @@ If the red-team runner finds a plausible vulnerability in third-party code:
 ## Contact
 
 For questions about this policy or to report a vulnerability found in
-tailtest itself: **security@tailtest.com**
+tailtest itself: **support@avansaber.com** (subject: `[TAILTEST SECURITY]`)
 
 ## Timeline summary
 

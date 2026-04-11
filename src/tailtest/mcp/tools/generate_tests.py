@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """``generate_tests`` MCP tool, real implementation (Phase 1 Task 1.12b)."""
 
 from __future__ import annotations

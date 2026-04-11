@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """SemgrepRunner, SAST scanning for tailtest (Phase 2 Task 2.2).
 
 Shells out to ``semgrep --config <ruleset> --json --quiet <files>``

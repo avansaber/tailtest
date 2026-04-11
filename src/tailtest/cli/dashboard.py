@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """``tailtest dashboard`` CLI command.
 
 Starts the live dashboard HTTP server and opens it in the browser.

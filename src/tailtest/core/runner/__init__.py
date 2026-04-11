@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.runner — pluggable test runner interface + registry.
 
 Phase 1 Task 1.2 defines `BaseRunner`; Tasks 1.2a and 1.2b implement

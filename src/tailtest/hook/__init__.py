@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.hook, plugin hook runtime logic.
 
 Phase 1 Tasks 1.5 (PostToolUse), 1.6 (SessionStart). The actual

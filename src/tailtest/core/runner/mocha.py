@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """MochaRunner -- Mocha test framework adapter (Phase 4.5.9).
 
 Mocha is a widely-used JS/TS test framework. This adapter uses Mocha's

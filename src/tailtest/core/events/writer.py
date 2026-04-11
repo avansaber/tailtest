@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Event stream writer — append-only JSONL file at .tailtest/events.jsonl.
 
 Phase 1 Task 1.5.5. The writer is used by every hook and engine module that

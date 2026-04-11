@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Pure-function + test-existence heuristics for auto-offer generation.
 
 Phase 1 Task 1.5a. When the PostToolUse hook finishes a test run, it

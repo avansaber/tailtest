@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Judge model resolver — detects the best available LLM for judging.
 
 Auto-detection checks, in priority order:

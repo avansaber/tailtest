@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.assertions.llm_judge — LLM-judge assertions.
 
 Phase 0: only a minimal ``judge`` stub module exists, so that the

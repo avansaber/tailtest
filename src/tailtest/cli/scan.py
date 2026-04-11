@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """``tailtest scan`` CLI command — invokes the project scanner and prints the profile.
 
 Phase 1: shallow scan only. Phase 3 adds ``--deep`` (LLM summary). Output

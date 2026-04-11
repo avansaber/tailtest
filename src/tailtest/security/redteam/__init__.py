@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.security.redteam -- Phase 6 red-team attack catalog loader.
 
 Loads the 64-attack YAML catalog into typed ``Attack`` objects.

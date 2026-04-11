@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.generator, test-generator scaffolding.
 
 Phase 1 Task 1.12b. Given a source file, generate a starter test file

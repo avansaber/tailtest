@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.mcp — MCP server exposing tailtest tools to MCP-compatible clients.
 
 Phase 0: empty scaffold. The server responds to ``initialize`` and

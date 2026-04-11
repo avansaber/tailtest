@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.security, the Phase 2 security scanning layer.
 
 Adds secret scanning (gitleaks), SAST (Semgrep), and SCA (OSV

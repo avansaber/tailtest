@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """RustTIA -- crate-level test impact analysis (Phase 4.5 Task 4.5.2).
 
 Maps a list of changed files to the crate names that need re-testing.

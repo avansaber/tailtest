@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """tailtest.core.coverage, delta coverage tracking (Phase 1 Task 1.8a).
 
 Delta coverage is what tailtest reports to answer the question

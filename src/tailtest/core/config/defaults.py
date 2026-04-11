@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Default config value helpers for tailtest (Phase 3 Task 3.7).
 
 These helpers let Task 3.8 (first-config write) choose sensible defaults

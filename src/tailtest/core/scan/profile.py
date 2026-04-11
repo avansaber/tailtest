@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """ProjectProfile — the data shape the scanner produces (Phase 1 Task 1.12a).
 
 The profile is the canonical source of truth for "what is this project?" —

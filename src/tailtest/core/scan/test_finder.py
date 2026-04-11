@@ -1,3 +1,6 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """BFS test directory discovery for nested project layouts."""
 
 from __future__ import annotations

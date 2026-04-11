@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Depth-mode dispatch wiring** in `post_tool_use.py`. Red-team fires AFTER the validator in the paranoid turn. `_should_invoke_redteam()` guards: paranoid + ai_surface:agent + ai_checks_enabled not False. All other depths: no-op.
 - **Red-team baseline behavior** via `BaselineManager`. Red-team findings added to `_IMMEDIATE_BASELINE_KINDS` -- they baseline on first detection like SAST/SCA. `list_redteam_entries()` returns all baselined red-team findings for review. Hook applies+updates baseline on the red-team batch using the same manager instance as the test/security pass.
 - **Red-team rendering** in `HTMLReporter`. `kind: redteam` findings render in the "Red team" section with reasoning, confidence badge, CWE, and severity stripe. `?kind=redteam` dashboard filter works via the existing generic kind filter.
-- **Coordinated disclosure policy** at `docs/redteam-disclosure.md`. 14-day ack, 90-day fix-or-publish timeline, `security@tailtest.com` contact. Linked from the red-team HTML report footer.
+- **Coordinated disclosure policy** at `docs/redteam-disclosure.md`. 14-day ack, 90-day fix-or-publish timeline, `support@avansaber.com` contact. Linked from the red-team HTML report footer.
 - **96 new tests** (1087 total, was 991 at rc.1). Covers: catalog load + schema + 8 categories (26 tests), runner applicable gate + parse + judge + rate-limit + HTML (26 tests), entry-point detection for Python/TS/Rust + config override + profile field (18 tests), depth-mode dispatch including every depth x ai_surface x ai_checks_enabled combination (11 tests), red-team HTML rendering (8 tests), red-team baseline behavior (8 tests).
 
 ### Fixed
