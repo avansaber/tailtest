@@ -89,8 +89,8 @@ class InvokeValidatorTool(BaseTool):
             },
             "timeout": {
                 "type": "number",
-                "description": "Subagent timeout in seconds. Default 30.",
-                "default": 30,
+                "description": "Subagent timeout in seconds. Default 120. The claude -p startup takes ~15s plus reasoning time; allow at least 120s for real validation work.",
+                "default": 120,
             },
         },
     }
