@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+from pathlib import Path
 
 # Re-exec guard env var. Set when bootstrap_or_die calls execl
 # so the new process doesn't bounce into another re-exec on its
@@ -52,6 +53,29 @@ def can_import_tailtest_hook() -> bool:
     except ImportError:
         return False
     return True
+
+
+def find_plugin_src(script_path: str) -> str | None:
+    """Find the plugin's own src/ directory relative to the hook shim.
+
+    When Claude Code installs the plugin, the layout is:
+        <plugin_root>/hooks/post_tool_use.py  (the shim, i.e. script_path)
+        <plugin_root>/src/tailtest/           (the package)
+
+    If that src/ directory exists and contains a tailtest package, we can
+    add it to sys.path so ``import tailtest.hook`` works without any pip
+    install. This makes the plugin self-contained for users who only want
+    the Claude Code integration and have not installed tailtester via pip.
+
+    Returns the absolute path to the src/ directory, or None if not found.
+    """
+    src_dir = Path(script_path).resolve().parent.parent / "src"
+    if not src_dir.is_dir():
+        return None
+    # Quick sanity check: the src/ must contain a tailtest package.
+    if not (src_dir / "tailtest").is_dir():
+        return None
+    return str(src_dir)
 
 
 def find_tailtest_python() -> str | None:
@@ -122,6 +146,19 @@ def bootstrap_or_die(script_path: str) -> None:
     """
     if can_import_tailtest_hook():
         return
+
+    # Step 2: try the plugin's own src/ directory before falling back to the
+    # CLI re-exec path. This makes the plugin self-contained -- users who
+    # install via ``claude plugin install`` without running ``pip install
+    # tailtester`` still get a working hot loop.
+    plugin_src = find_plugin_src(script_path)
+    if plugin_src is not None:
+        sys.path.insert(0, plugin_src)
+        if can_import_tailtest_hook():
+            return
+        # src/ was found but the import still failed (broken install).
+        # Remove the path addition so subsequent diagnostics are clean.
+        sys.path.remove(plugin_src)
 
     if os.environ.get(_REEXEC_ENV_VAR) == "1":
         # We already tried the re-exec; the target interpreter

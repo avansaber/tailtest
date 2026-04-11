@@ -36,6 +36,8 @@ EXPECTED_SKILLS = {
     "tailtest",
     # Phase 5 Task 5.7 added the validator memory viewer skill.
     "memory",
+    # Phase 7 Task 7.1 added the help skill.
+    "help",
 }
 
 # Skills that take a positional argument via $ARGUMENTS and therefore
