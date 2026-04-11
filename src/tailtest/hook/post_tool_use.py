@@ -777,6 +777,11 @@ def _build_added_lines(
     result: dict[str, set[int]] = {}
     primary = changed_files[0]
 
+    # Only track coverage for Python source files; markdown, YAML, TOML,
+    # and other non-code files have no coverage concept.
+    if primary.suffix not in {".py", ".pyi"}:
+        return {}
+
     if tool_name == "Write":
         content = tool_input.get("content")
         if isinstance(content, str):
