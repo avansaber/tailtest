@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-rc.2] - 2026-04-11
+
+### Added
+- **64-attack red-team catalog** at `data/redteam/attacks.yaml`. 8 categories covering the OWASP LLM Top 10: prompt injection, jailbreak, PII extraction, data leakage, tool misuse, hallucination induction, scope violation, denial of service. Each attack has a payload, expected outcome, severity, CWE mapping, OWASP category, remediation hint, and applicable language tags.
+- **RedTeamRunner** at `src/tailtest/security/redteam/runner.py`. Fires only at `paranoid` depth on `ai_surface: agent` projects with `ai_checks_enabled` not false. Reads agent entry-point code and submits it to `claude -p` for static vulnerability assessment -- one call per attack category, 8 concurrent via `asyncio.gather`. Rate-limits terminal output to 5 findings by severity; writes full results to `.tailtest/reports/redteam-<timestamp>.html`.
+- **Agent entry-point detection** in `src/tailtest/core/scan/detectors.py`. Detects agent entry points for Python (`@agent_test`, `main()` in `agents/`, `invoke()`, Anthropic/OpenAI client boost), TypeScript (default exports, Vercel AI SDK, `UserMessage` parameter), and Rust (`pub async fn` with LLM client import). Config override via `.tailtest/config.yaml` `agent.entry_points` takes precedence over auto-detection for custom frameworks. Detected entry points stored as `agent_entry_points: list[EntryPoint]` on `ProjectProfile`.
+- **Depth-mode dispatch wiring** in `post_tool_use.py`. Red-team fires AFTER the validator in the paranoid turn. `_should_invoke_redteam()` guards: paranoid + ai_surface:agent + ai_checks_enabled not False. All other depths: no-op.
+- **Red-team baseline behavior** via `BaselineManager`. Red-team findings added to `_IMMEDIATE_BASELINE_KINDS` -- they baseline on first detection like SAST/SCA. `list_redteam_entries()` returns all baselined red-team findings for review. Hook applies+updates baseline on the red-team batch using the same manager instance as the test/security pass.
+- **Red-team rendering** in `HTMLReporter`. `kind: redteam` findings render in the "Red team" section with reasoning, confidence badge, CWE, and severity stripe. `?kind=redteam` dashboard filter works via the existing generic kind filter.
+- **Coordinated disclosure policy** at `docs/redteam-disclosure.md`. 14-day ack, 90-day fix-or-publish timeline, `security@tailtest.com` contact. Linked from the red-team HTML report footer.
+- **96 new tests** (1087 total, was 991 at rc.1). Covers: catalog load + schema + 8 categories (26 tests), runner applicable gate + parse + judge + rate-limit + HTML (26 tests), entry-point detection for Python/TS/Rust + config override + profile field (18 tests), depth-mode dispatch including every depth x ai_surface x ai_checks_enabled combination (11 tests), red-team HTML rendering (8 tests), red-team baseline behavior (8 tests).
+
+### Fixed
+- **`_read_agent_code` crash on relative project_root.** When project root was passed as a relative path but entry point paths were absolute, `Path.relative_to()` raised `ValueError`. Fixed by resolving both to absolute before calling `relative_to`, with a fallback to the raw path on cross-device edge cases. Caught during Task 6.7 dogfood on CoreCoder.
+
 ## [0.1.0-alpha.2] - 2026-04-09
 
 ### Added
