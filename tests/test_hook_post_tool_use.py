@@ -19,14 +19,14 @@ from pathlib import Path
 
 import pytest
 
+from tailtest.core.config import DepthMode
+from tailtest.core.config.schema import Config
 from tailtest.core.findings.schema import (
     Finding,
     FindingBatch,
     FindingKind,
     Severity,
 )
-from tailtest.core.config import DepthMode
-from tailtest.core.config.schema import Config
 from tailtest.hook.post_tool_use import (
     _extract_diff_text,
     _extract_file_paths,
