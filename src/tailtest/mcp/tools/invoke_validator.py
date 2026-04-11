@@ -288,12 +288,17 @@ async def _invoke_claude(
 
     cmd = [
         claude_bin,
-        "-p", initial_prompt,
-        "--system-prompt", system_prompt,
-        "--allowedTools", "Read,Grep,Glob,Bash",
-        "--disallowedTools", "Write,Edit,MultiEdit,NotebookEdit,WebSearch,WebFetch",
+        "-p",
+        initial_prompt,
+        "--system-prompt",
+        system_prompt,
+        "--allowedTools",
+        "Read,Grep,Glob,Bash",
+        "--disallowedTools",
+        "Write,Edit,MultiEdit,NotebookEdit,WebSearch,WebFetch",
         "--no-session-persistence",
-        "--output-format", "text",
+        "--output-format",
+        "text",
     ]
 
     proc = await asyncio.create_subprocess_exec(

@@ -167,14 +167,10 @@ class MochaRunner(BaseRunner):
         duration_ms = time.monotonic() * 1000.0 - start_ms
 
         if not result.stdout.strip():
-            return self._crash_batch(
-                run_id=run_id, stderr=result.stderr, duration_ms=duration_ms
-            )
+            return self._crash_batch(run_id=run_id, stderr=result.stderr, duration_ms=duration_ms)
 
         try:
-            return self._parse_mocha_json(
-                result.stdout, run_id=run_id, duration_ms=duration_ms
-            )
+            return self._parse_mocha_json(result.stdout, run_id=run_id, duration_ms=duration_ms)
         except (json.JSONDecodeError, KeyError, TypeError) as exc:
             logger.error("MochaRunner: failed to parse JSON output: %s", exc)
             return self._crash_batch(
@@ -185,9 +181,7 @@ class MochaRunner(BaseRunner):
 
     # --- Parser ---
 
-    def _parse_mocha_json(
-        self, stdout: str, *, run_id: str, duration_ms: float
-    ) -> FindingBatch:
+    def _parse_mocha_json(self, stdout: str, *, run_id: str, duration_ms: float) -> FindingBatch:
         """Parse mocha ``--reporter=json`` output.
 
         Mocha JSON shape::
@@ -246,9 +240,7 @@ class MochaRunner(BaseRunner):
             tests_skipped=skipped,
         )
 
-    def _crash_batch(
-        self, *, run_id: str, stderr: str, duration_ms: float
-    ) -> FindingBatch:
+    def _crash_batch(self, *, run_id: str, stderr: str, duration_ms: float) -> FindingBatch:
         msg = (stderr or "mocha produced no output").strip()
         return FindingBatch(
             run_id=run_id,

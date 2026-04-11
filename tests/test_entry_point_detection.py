@@ -126,8 +126,7 @@ def test_ts_detects_user_message_function(tmp_path: Path) -> None:
 def test_ts_no_false_positive_on_plain_ts(tmp_path: Path) -> None:
     f = _write(
         tmp_path / "types.ts",
-        "export interface Config { apiKey: string; }\n"
-        "export type Result = { data: string };\n",
+        "export interface Config { apiKey: string; }\nexport type Result = { data: string };\n",
     )
     eps = detect_entry_points(tmp_path, [f], "typescript")
     assert eps == []
@@ -206,13 +205,7 @@ def test_config_override_with_nonexistent_file(tmp_path: Path) -> None:
     config_dir.mkdir()
     (config_dir / "config.yaml").write_text(
         yaml.dump(
-            {
-                "agent": {
-                    "entry_points": [
-                        {"file": "does_not_exist.py", "function": "phantom"}
-                    ]
-                }
-            }
+            {"agent": {"entry_points": [{"file": "does_not_exist.py", "function": "phantom"}]}}
         )
     )
     eps = detect_entry_points(tmp_path, [], "python")
@@ -230,9 +223,7 @@ def test_config_override_empty_returns_to_auto_detect(tmp_path: Path) -> None:
     )
     config_dir = tmp_path / ".tailtest"
     config_dir.mkdir()
-    (config_dir / "config.yaml").write_text(
-        yaml.dump({"agent": {"entry_points": []}})
-    )
+    (config_dir / "config.yaml").write_text(yaml.dump({"agent": {"entry_points": []}}))
     eps = detect_entry_points(tmp_path, [f], "python")
     # Empty config → auto-detect fires
     assert any(e.function == "main" for e in eps)

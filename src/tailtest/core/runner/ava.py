@@ -159,15 +159,11 @@ class AvaRunner(BaseRunner):
         duration_ms = time.monotonic() * 1000.0 - start_ms
         output = result.stdout or result.stderr
         if not output.strip():
-            return self._crash_batch(
-                run_id=run_id, stderr=result.stderr, duration_ms=duration_ms
-            )
+            return self._crash_batch(run_id=run_id, stderr=result.stderr, duration_ms=duration_ms)
 
         return self._parse_tap(output, run_id=run_id, duration_ms=duration_ms)
 
-    def _parse_tap(
-        self, output: str, *, run_id: str, duration_ms: float
-    ) -> FindingBatch:
+    def _parse_tap(self, output: str, *, run_id: str, duration_ms: float) -> FindingBatch:
         entries = parse_tap(output)
         passed = sum(1 for e in entries if e.passed and not e.skipped)
         skipped = sum(1 for e in entries if e.skipped)
@@ -206,9 +202,7 @@ class AvaRunner(BaseRunner):
             tests_skipped=skipped,
         )
 
-    def _crash_batch(
-        self, *, run_id: str, stderr: str, duration_ms: float
-    ) -> FindingBatch:
+    def _crash_batch(self, *, run_id: str, stderr: str, duration_ms: float) -> FindingBatch:
         msg = (stderr or "ava produced no output").strip()
         return FindingBatch(
             run_id=run_id,

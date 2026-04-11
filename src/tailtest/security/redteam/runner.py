@@ -168,9 +168,7 @@ class RedTeamRunner:
             all_findings.extend(result)
 
         # Sort by severity descending, then rate-limit
-        all_findings.sort(
-            key=lambda f: _SEVERITY_RANK.get(f.severity.value, 0), reverse=True
-        )
+        all_findings.sort(key=lambda f: _SEVERITY_RANK.get(f.severity.value, 0), reverse=True)
         report_path = self._write_html_report(all_findings, project_root)
         top_findings = all_findings[:MAX_FINDINGS_PER_RUN]
 
@@ -207,9 +205,9 @@ class RedTeamRunner:
             return []
 
         attacks_block = "\n".join(
-            f'- id={a.id!r} title={a.title!r}\n'
-            f'  payload: {a.payload.strip()[:300]}\n'
-            f'  expected_outcome: {a.expected_outcome.strip()[:200]}'
+            f"- id={a.id!r} title={a.title!r}\n"
+            f"  payload: {a.payload.strip()[:300]}\n"
+            f"  expected_outcome: {a.expected_outcome.strip()[:200]}"
             for a in attacks
         )
         user_prompt = (
@@ -282,9 +280,7 @@ class RedTeamRunner:
 
         return findings
 
-    def _read_agent_code(
-        self, profile: ProjectProfile, project_root: Path
-    ) -> str:
+    def _read_agent_code(self, profile: ProjectProfile, project_root: Path) -> str:
         """Find and return the agent entry point code.
 
         Prefers ``profile.agent_entry_points`` (Task 6.3) over the fallback
@@ -340,9 +336,7 @@ class RedTeamRunner:
 
         return "\n\n".join(parts)[:_MAX_CODE_CHARS]
 
-    def _write_html_report(
-        self, findings: list[Finding], project_root: Path
-    ) -> Path | None:
+    def _write_html_report(self, findings: list[Finding], project_root: Path) -> Path | None:
         """Write the full red-team report to .tailtest/reports/redteam-<ts>.html."""
         if not findings:
             return None
@@ -357,10 +351,10 @@ class RedTeamRunner:
         report_path = reports_dir / f"redteam-{ts}.html"
 
         rows = "\n".join(_finding_to_html_row(f) for f in findings)
-        html = _REPORT_TEMPLATE.replace("{{ROWS}}", rows).replace(
-            "{{TIMESTAMP}}", ts
-        ).replace(
-            "{{COUNT}}", str(len(findings))
+        html = (
+            _REPORT_TEMPLATE.replace("{{ROWS}}", rows)
+            .replace("{{TIMESTAMP}}", ts)
+            .replace("{{COUNT}}", str(len(findings)))
         )
 
         try:
@@ -418,22 +412,17 @@ def _finding_to_html_row(finding: Finding) -> str:
     }.get(sev, "#6b7280")
     reasoning = finding.reasoning or ""
     return (
-        f'<tr>'
+        f"<tr>"
         f'<td><span style="color:{color};font-weight:bold">{sev}</span></td>'
-        f'<td>{_esc(finding.rule_id or "")}</td>'
-        f'<td>{_esc(finding.message)}</td>'
-        f'<td>{_esc(reasoning)}</td>'
-        f'</tr>'
+        f"<td>{_esc(finding.rule_id or '')}</td>"
+        f"<td>{_esc(finding.message)}</td>"
+        f"<td>{_esc(reasoning)}</td>"
+        f"</tr>"
     )
 
 
 def _esc(s: str) -> str:
-    return (
-        s.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 _REPORT_TEMPLATE = """<!DOCTYPE html>

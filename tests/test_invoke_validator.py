@@ -61,9 +61,7 @@ def tool(project_root: Path) -> InvokeValidatorTool:
 def _fake_proc(stdout: str, returncode: int = 0) -> MagicMock:
     proc = MagicMock()
     proc.returncode = returncode
-    proc.communicate = AsyncMock(
-        return_value=(stdout.encode("utf-8"), b"")
-    )
+    proc.communicate = AsyncMock(return_value=(stdout.encode("utf-8"), b""))
     proc.kill = MagicMock()
     return proc
 
@@ -204,7 +202,10 @@ def test_to_findings_attaches_reasoning_and_confidence() -> None:
 
 
 def test_to_findings_skips_non_dict_items() -> None:
-    data: list[Any] = ["not a dict", {"severity": "low", "file": "x.py", "line": 0, "message": "ok"}]
+    data: list[Any] = [
+        "not a dict",
+        {"severity": "low", "file": "x.py", "line": 0, "message": "ok"},
+    ]
     findings = _to_findings(data, run_id="r1")
     assert len(findings) == 1
 
@@ -411,6 +412,7 @@ async def test_defensive_layer_blocks_file_write_markers(tool: InvokeValidatorTo
 
 def test_tool_is_registered_in_all_tools() -> None:
     from tailtest.mcp.tools import ALL_TOOLS
+
     names = [t.name for t in ALL_TOOLS]
     assert "invoke_validator" in names
 

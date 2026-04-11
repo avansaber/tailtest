@@ -108,9 +108,7 @@ def test_scanner_detects_anthropic_crate_as_ai_framework(tmp_path: Path) -> None
 
 def test_scanner_detects_glob_workspace_members(tmp_path: Path) -> None:
     """Glob patterns in workspace members (e.g. 'crates/*') are expanded correctly."""
-    (tmp_path / "Cargo.toml").write_text(
-        '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n'
-    )
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n')
     crates = tmp_path / "crates"
     # crate with an AI-keyword name
     ai_crate = crates / "rusty-claude-cli"
@@ -134,9 +132,7 @@ def test_scanner_detects_ai_surface_from_crate_name(tmp_path: Path) -> None:
     """A workspace member whose crate name contains an AI keyword triggers ai_surface: agent."""
     from tailtest.core.scan.profile import AISurface
 
-    (tmp_path / "Cargo.toml").write_text(
-        '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n'
-    )
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n')
     crate = tmp_path / "crates" / "mock-anthropic-service"
     crate.mkdir(parents=True)
     (crate / "Cargo.toml").write_text(
@@ -144,9 +140,7 @@ def test_scanner_detects_ai_surface_from_crate_name(tmp_path: Path) -> None:
     )
 
     frameworks = detectors.detect_frameworks(tmp_path)
-    ai_surface, ai_confidence, ai_signals = detectors.detect_ai_surface(
-        tmp_path, [], frameworks
-    )
+    ai_surface, ai_confidence, ai_signals = detectors.detect_ai_surface(tmp_path, [], frameworks)
     assert ai_surface == AISurface.AGENT
     assert any("mock-anthropic-service" in s for s in ai_signals)
 
@@ -161,9 +155,7 @@ def test_detect_ai_surface_uses_framework_category_agent(tmp_path: Path) -> None
         source="Cargo.toml",
         category="agent",
     )
-    ai_surface, ai_confidence, ai_signals = detectors.detect_ai_surface(
-        tmp_path, [], [framework]
-    )
+    ai_surface, ai_confidence, ai_signals = detectors.detect_ai_surface(tmp_path, [], [framework])
     assert ai_surface == AISurface.AGENT
     assert "framework:custom-agent-crate" in ai_signals
 

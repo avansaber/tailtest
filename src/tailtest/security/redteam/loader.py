@@ -49,9 +49,7 @@ def load_attacks(catalog_path: Path | None = None) -> list[Attack]:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
 
     if raw.get("schema_version") != 1:
-        raise ValueError(
-            f"Unsupported catalog schema_version: {raw.get('schema_version')!r}"
-        )
+        raise ValueError(f"Unsupported catalog schema_version: {raw.get('schema_version')!r}")
 
     raw_attacks = raw.get("attacks", [])
     if not isinstance(raw_attacks, list) or not raw_attacks:
@@ -67,9 +65,7 @@ def load_attacks(catalog_path: Path | None = None) -> list[Attack]:
         seen_ids.add(attack.id)
 
         if attack.category not in _VALID_CATEGORIES:
-            raise ValueError(
-                f"Attack {attack.id!r} has unknown category: {attack.category!r}"
-            )
+            raise ValueError(f"Attack {attack.id!r} has unknown category: {attack.category!r}")
         if attack.severity_on_success not in _VALID_SEVERITIES:
             raise ValueError(
                 f"Attack {attack.id!r} has unknown severity: {attack.severity_on_success!r}"

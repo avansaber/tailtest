@@ -71,9 +71,7 @@ def parse_tap(text: str) -> list[TapEntry]:
                 if i < len(lines):
                     i += 1  # skip closing ... or ---
                 message = _extract_message(yaml_lines)
-            entries.append(
-                TapEntry(name=name or "unnamed", passed=False, message=message)
-            )
+            entries.append(TapEntry(name=name or "unnamed", passed=False, message=message))
             continue
 
         i += 1
@@ -91,7 +89,7 @@ def _extract_message(yaml_lines: list[str]) -> str:
     for prefix in ("message:", "error:", "name:"):
         for ln in lines:
             if ln.lower().startswith(prefix):
-                value = ln[len(prefix):].strip().strip("'\"")
+                value = ln[len(prefix) :].strip().strip("'\"")
                 if value:
                     return value[:200]
 

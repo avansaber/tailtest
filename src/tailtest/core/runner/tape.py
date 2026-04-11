@@ -154,11 +154,7 @@ class TapeRunner(BaseRunner):
 
         all_tap_lines: list[str] = []
         for test_file in files_to_run:
-            file_path = (
-                test_file
-                if test_file.is_absolute()
-                else self.project_root / test_file
-            )
+            file_path = test_file if test_file.is_absolute() else self.project_root / test_file
             suffix = file_path.suffix
             if suffix in (".ts", ".mts") and tsx_available:
                 cmd = ["npx", "tsx", str(file_path)]
@@ -180,9 +176,7 @@ class TapeRunner(BaseRunner):
 
         return self._parse_tap(combined, run_id=run_id, duration_ms=duration_ms)
 
-    def _parse_tap(
-        self, output: str, *, run_id: str, duration_ms: float
-    ) -> FindingBatch:
+    def _parse_tap(self, output: str, *, run_id: str, duration_ms: float) -> FindingBatch:
         entries = parse_tap(output)
         passed = sum(1 for e in entries if e.passed and not e.skipped)
         skipped = sum(1 for e in entries if e.skipped)
@@ -221,9 +215,7 @@ class TapeRunner(BaseRunner):
             tests_skipped=skipped,
         )
 
-    def _crash_batch(
-        self, *, run_id: str, stderr: str, duration_ms: float
-    ) -> FindingBatch:
+    def _crash_batch(self, *, run_id: str, stderr: str, duration_ms: float) -> FindingBatch:
         msg = (stderr or "tape produced no output").strip()
         return FindingBatch(
             run_id=run_id,
