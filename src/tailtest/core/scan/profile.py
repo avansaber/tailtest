@@ -124,6 +124,25 @@ class DirectoryClassification(BaseModel):
     ignored: list[Path] = Field(default_factory=list)
 
 
+# --- Agent entry point ----------------------------------------------------
+
+
+class EntryPoint(BaseModel):
+    """A detected (or config-declared) agent entry point.
+
+    Produced by Phase 6 Task 6.3 detection and stored in the profile.
+    The red-team runner reads these to know which code to analyze.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    file: Path
+    function: str
+    language: str  # "python" | "typescript" | "rust"
+    confidence: str  # "high" | "medium" | "low"
+    framework: str | None = None
+
+
 # --- Main profile ---------------------------------------------------------
 
 
@@ -182,6 +201,9 @@ class ProjectProfile(BaseModel):
     # Phase 3 Task 3.5: propagated from config.ai_checks_enabled.
     # None = unset (user has not decided); True = enabled; False = dismissed.
     ai_checks_enabled: bool | None = None
+
+    # Phase 6 Task 6.3: detected agent entry points for red-team runner.
+    agent_entry_points: list[EntryPoint] = Field(default_factory=list)
 
     # --- Convenience helpers ---
 

@@ -25,6 +25,7 @@ from tailtest.core.recommendations import (
 )
 from tailtest.core.scan import detectors
 from tailtest.core.scan.profile import (
+    AISurface,
     ProjectProfile,
     ScanStatus,
 )
@@ -158,6 +159,11 @@ class ProjectScanner:
         # 10. Content hash for cache invalidation
         content_hash = detectors.compute_content_hash(self.project_root)
 
+        # 11. Agent entry-point detection (Phase 6 Task 6.3)
+        agent_entry_points = detectors.detect_entry_points(
+            self.project_root, files, primary_language
+        ) if ai_surface == AISurface.AGENT else []
+
         elapsed = time.monotonic() * 1000.0 - start_ms
         scan_mode = "partial" if hit_ceiling else "shallow"
         scan_status = ScanStatus.PARTIAL if hit_ceiling else ScanStatus.OK
@@ -181,6 +187,7 @@ class ProjectScanner:
             ai_signals=ai_signals,
             likely_vibe_coded=likely_vibe_coded,
             vibe_coded_signals=vibe_signals,
+            agent_entry_points=agent_entry_points,
         )
 
     # --- Persistence ---

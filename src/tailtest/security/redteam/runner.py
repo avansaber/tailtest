@@ -285,27 +285,19 @@ class RedTeamRunner:
     def _read_agent_code(
         self, profile: ProjectProfile, project_root: Path
     ) -> str:
-        """Find and return the agent entry point code (heuristic, pre-Task-6.3)."""
+        """Find and return the agent entry point code.
+
+        Prefers ``profile.agent_entry_points`` (Task 6.3) over the fallback
+        filename heuristic so that the scanner's detection drives the runner.
+        """
         candidates: list[Path] = []
 
-        # Check config-declared entry points (Task 6.3 adds full support;
-        # here we just check a common config location)
-        config_path = project_root / ".tailtest" / "config.yaml"
-        if config_path.exists():
-            try:
-                import yaml
-
-                cfg = yaml.safe_load(config_path.read_text())
-                declared = (cfg or {}).get("agent", {}).get("entry_points", [])
-                for ep in declared or []:
-                    p = project_root / ep.get("file", "")
-                    if p.exists():
-                        candidates.append(p)
-            except Exception:
-                pass
+        # Prefer profile-detected / config-declared entry points (Task 6.3)
+        if profile.agent_entry_points:
+            candidates = [ep.file for ep in profile.agent_entry_points if ep.file.exists()]
 
         if not candidates:
-            # Heuristic: find agent-related files by name pattern
+            # Fallback: filename heuristic for projects not yet scanned
             patterns = [
                 "**/agent*.py",
                 "**/agents/*.py",
