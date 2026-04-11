@@ -99,6 +99,40 @@ def test_tap_parse_mixed() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _is_node_test_script helper
+# ---------------------------------------------------------------------------
+
+
+def test_is_node_test_script_direct() -> None:
+    from tailtest.core.runner.node_test import _is_node_test_script
+    assert _is_node_test_script("node --test") is True
+
+
+def test_is_node_test_script_with_loader_flags() -> None:
+    """Feynman-style: node --import tsx --test --test-concurrency=1 tests/*.test.ts"""
+    from tailtest.core.runner.node_test import _is_node_test_script
+    assert _is_node_test_script(
+        "node --import tsx --test --test-concurrency=1 tests/*.test.ts"
+    ) is True
+
+
+def test_is_node_test_script_node_colon_test() -> None:
+    from tailtest.core.runner.node_test import _is_node_test_script
+    assert _is_node_test_script("tsx --import node:test tests/") is True
+
+
+def test_is_node_test_script_jest_is_false() -> None:
+    from tailtest.core.runner.node_test import _is_node_test_script
+    assert _is_node_test_script("jest") is False
+
+
+def test_is_node_test_script_npx_tsx_is_false() -> None:
+    """npx tsx --test is tsx's own runner, not node:test."""
+    from tailtest.core.runner.node_test import _is_node_test_script
+    assert _is_node_test_script("npx tsx --test") is False
+
+
+# ---------------------------------------------------------------------------
 # NodeTestRunner -- discovery
 # ---------------------------------------------------------------------------
 
@@ -160,6 +194,18 @@ def test_node_test_discover_defers_to_jsrunner_when_jest(
 def test_node_test_discover_node_colon_test_script(tmp_path: Path, monkeypatch) -> None:
     """``node:test`` in scripts is also a valid signal."""
     _pkg(tmp_path, scripts={"test": "tsx --import node:test tests/"})
+    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/node")
+    runner = NodeTestRunner(tmp_path)
+    assert runner.discover() is True
+
+
+def test_node_test_discover_feynman_style_script(tmp_path: Path, monkeypatch) -> None:
+    """Feynman uses ``node --import tsx --test --test-concurrency=1 tests/*.test.ts``."""
+    _pkg(
+        tmp_path,
+        devDependencies={"tsx": "^4.21.0", "typescript": "^5.9.3"},
+        scripts={"test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts"},
+    )
     monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/node")
     runner = NodeTestRunner(tmp_path)
     assert runner.discover() is True

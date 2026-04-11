@@ -98,13 +98,14 @@ class NodeTestRunner(BaseRunner):
                 return False
 
         # Require an explicit node --test signal in scripts.
+        # Match both `node --test` (direct) and `node <flags> --test`
+        # (e.g. `node --import tsx --test`) by checking that the script
+        # value starts with "node " and contains " --test" as a separate
+        # flag. Also match the import-specifier form `node:test`.
         scripts = pkg.get("scripts") or {}
         if not isinstance(scripts, dict):
             return False
-        return any(
-            "node --test" in str(v) or "node:test" in str(v)
-            for v in scripts.values()
-        )
+        return any(_is_node_test_script(str(v)) for v in scripts.values())
 
     # --- TIA (stem-based heuristic) ---
 
@@ -151,14 +152,20 @@ class NodeTestRunner(BaseRunner):
         start_ms = time.monotonic() * 1000.0
 
         # Prefer tsx if installed (enables TypeScript test files).
-        tsx_available = shutil.which("tsx") is not None or self._pkg_has_dep("tsx")
+        # Use `node --import tsx --test` (the idiomatic pattern, e.g. Feynman)
+        # rather than `npx tsx --test` to stay within Node's own test runner.
+        tsx_available = self._pkg_has_dep("tsx") or shutil.which("tsx") is not None
         if tsx_available:
-            cmd = ["npx", "tsx", "--test", "--test-reporter=json"]
+            cmd = ["node", "--import", "tsx", "--test", "--test-reporter=json"]
         else:
             cmd = ["node", "--test", "--test-reporter=json"]
 
-        if test_ids:
-            cmd.extend(test_ids)
+        # When no test IDs are specified, discover test files explicitly.
+        # Node's own auto-discovery only picks up .js/.mjs/.cjs; TypeScript
+        # projects (like Feynman) need the .ts files passed explicitly.
+        files_to_run = test_ids or self._discover_test_files()
+        if files_to_run:
+            cmd.extend(files_to_run)
 
         try:
             result = await self.shell_run(cmd, timeout_seconds=timeout_seconds)
@@ -186,11 +193,11 @@ class NodeTestRunner(BaseRunner):
 
         # JSON failed: try TAP output (re-run with --test-reporter=tap).
         if tsx_available:
-            tap_cmd = ["npx", "tsx", "--test", "--test-reporter=tap"]
+            tap_cmd = ["node", "--import", "tsx", "--test", "--test-reporter=tap"]
         else:
             tap_cmd = ["node", "--test", "--test-reporter=tap"]
-        if test_ids:
-            tap_cmd.extend(test_ids)
+        if files_to_run:
+            tap_cmd.extend(files_to_run)
 
         try:
             tap_result = await self.shell_run(tap_cmd, timeout_seconds=timeout_seconds)
@@ -369,6 +376,23 @@ class NodeTestRunner(BaseRunner):
             tests_failed=1,
         )
 
+    def _discover_test_files(self) -> list[str]:
+        """Return all test file paths relative to project root.
+
+        Used when no specific test IDs are provided. Expands the same
+        glob patterns that ``node --test`` uses for JS files, plus .ts
+        variants for TypeScript projects. Skips node_modules.
+        """
+        found: list[str] = []
+        seen: set[Path] = set()
+        for pattern in _NODE_TEST_GLOBS:
+            for f in self.project_root.glob(pattern):
+                if "node_modules" in f.parts or f in seen:
+                    continue
+                seen.add(f)
+                found.append(str(f))
+        return sorted(found)
+
     def _pkg_has_dep(self, dep: str) -> bool:
         try:
             pkg = json.loads(
@@ -383,6 +407,28 @@ class NodeTestRunner(BaseRunner):
 
 
 # --- Helpers ---
+
+
+def _is_node_test_script(script_value: str) -> bool:
+    """Return True if the script value invokes Node's built-in test runner.
+
+    Handles:
+      - ``node --test``                              (direct)
+      - ``node --import tsx --test``                 (Feynman-style loader)
+      - ``node --experimental-vm-modules --test``    (other flags first)
+      - ``npx tsx --test`` is NOT matched (that is TSX's own runner, not node:test)
+      - ``node:test`` import specifier in the script
+    """
+    v = script_value.strip()
+    # node:test import specifier is unambiguous.
+    if "node:test" in v:
+        return True
+    # Script must start with "node " (word boundary) to be a node invocation.
+    if not (v == "node" or v.startswith("node ") or v.startswith("node\t")):
+        return False
+    # Must contain " --test" as a standalone flag (space before, not part of
+    # another flag like --test-concurrency).
+    return " --test" in v or "\t--test" in v
 
 
 def _trim(text: str) -> str:
