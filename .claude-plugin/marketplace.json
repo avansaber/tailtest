@@ -13,8 +13,8 @@
     {
       "name": "tailtest",
       "source": "./",
-      "description": "Test + security validator for Claude Code. PostToolUse hook runs impacted tests + gitleaks + Semgrep + OSV on every edit, feeds findings back via additionalContext. Phase 2 security layer shipped at v0.1.0-alpha.2.",
-      "version": "0.1.0-alpha.2",
+      "description": "Test + security validator for Claude Code. PostToolUse hook runs impacted tests + gitleaks + Semgrep + OSV on every edit, feeds findings back via additionalContext.",
+      "version": "0.1.0-rc.2",
       "author": {
         "name": "AvanSaber Inc.",
         "email": "support@avansaber.com",

@@ -249,6 +249,110 @@ def test_bootstrap_or_die_messages_link_to_install_doc(monkeypatch, capsys) -> N
     assert "docs/install.md" in captured.err
 
 
+# --- find_plugin_src ---------------------------------------------------
+
+
+def test_find_plugin_src_returns_src_when_layout_is_correct(tmp_path: Path) -> None:
+    """find_plugin_src returns the src/ path when the plugin layout is right."""
+    # Simulate: <plugin_root>/hooks/shim.py + <plugin_root>/src/tailtest/
+    hooks_dir = tmp_path / "hooks"
+    hooks_dir.mkdir()
+    src_tailtest = tmp_path / "src" / "tailtest"
+    src_tailtest.mkdir(parents=True)
+    shim = hooks_dir / "shim.py"
+    shim.write_text("")
+
+    bootstrap = _load_bootstrap_module()
+    result = bootstrap.find_plugin_src(str(shim))
+    assert result == str(tmp_path / "src")
+
+
+def test_find_plugin_src_returns_none_when_src_missing(tmp_path: Path) -> None:
+    """Returns None when there is no src/ directory next to hooks/."""
+    hooks_dir = tmp_path / "hooks"
+    hooks_dir.mkdir()
+    shim = hooks_dir / "shim.py"
+    shim.write_text("")
+
+    bootstrap = _load_bootstrap_module()
+    assert bootstrap.find_plugin_src(str(shim)) is None
+
+
+def test_find_plugin_src_returns_none_when_tailtest_package_absent(tmp_path: Path) -> None:
+    """Returns None when src/ exists but has no tailtest sub-package."""
+    hooks_dir = tmp_path / "hooks"
+    hooks_dir.mkdir()
+    (tmp_path / "src").mkdir()  # src/ exists but no src/tailtest/
+    shim = hooks_dir / "shim.py"
+    shim.write_text("")
+
+    bootstrap = _load_bootstrap_module()
+    assert bootstrap.find_plugin_src(str(shim)) is None
+
+
+def test_bootstrap_or_die_uses_plugin_src_when_import_fails_but_src_present(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """bootstrap_or_die adds the plugin src/ to sys.path and succeeds
+    when the direct import fails but the plugin layout has a valid src/."""
+    import sys
+
+    hooks_dir = tmp_path / "hooks"
+    hooks_dir.mkdir()
+    src_tailtest = tmp_path / "src" / "tailtest"
+    src_tailtest.mkdir(parents=True)
+    shim = hooks_dir / "shim.py"
+    shim.write_text("")
+
+    plugin_src = str(tmp_path / "src")
+    call_count = {"n": 0}
+
+    def fake_can_import() -> bool:
+        # First call (direct import attempt) fails; second call
+        # (after sys.path is augmented) succeeds.
+        call_count["n"] += 1
+        return call_count["n"] > 1
+
+    bootstrap = _load_bootstrap_module()
+    monkeypatch.setattr(bootstrap, "can_import_tailtest_hook", fake_can_import)
+    monkeypatch.setattr(bootstrap, "find_tailtest_python", lambda: None)
+    monkeypatch.delenv("TAILTEST_HOOK_REEXEC", raising=False)
+
+    bootstrap.bootstrap_or_die(str(shim))  # must not raise
+
+    assert plugin_src in sys.path
+    # Cleanup so other tests are not affected.
+    sys.path.remove(plugin_src)
+
+
+def test_bootstrap_or_die_removes_plugin_src_when_import_still_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """If find_plugin_src returns a path but the import still fails,
+    the path must be removed from sys.path before the next fallback."""
+    import sys
+
+    hooks_dir = tmp_path / "hooks"
+    hooks_dir.mkdir()
+    src_tailtest = tmp_path / "src" / "tailtest"
+    src_tailtest.mkdir(parents=True)
+    shim = hooks_dir / "shim.py"
+    shim.write_text("")
+
+    plugin_src = str(tmp_path / "src")
+
+    bootstrap = _load_bootstrap_module()
+    # Always return False so the import never succeeds.
+    monkeypatch.setattr(bootstrap, "can_import_tailtest_hook", lambda: False)
+    monkeypatch.setattr(bootstrap, "find_tailtest_python", lambda: None)
+    monkeypatch.delenv("TAILTEST_HOOK_REEXEC", raising=False)
+
+    with pytest.raises(SystemExit):
+        bootstrap.bootstrap_or_die(str(shim))
+
+    assert plugin_src not in sys.path
+
+
 # --- regression: shim files import _bootstrap correctly ---------------
 
 
