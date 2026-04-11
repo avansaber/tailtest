@@ -25,13 +25,17 @@ from tailtest.core.findings.schema import (
     FindingKind,
     Severity,
 )
+from tailtest.core.config import DepthMode
+from tailtest.core.config.schema import Config
 from tailtest.hook.post_tool_use import (
+    _extract_diff_text,
     _extract_file_paths,
     _format_additional_context,
     _is_manifest_file,
     _is_self_edit,
     _looks_like_test_file,
     _parse_stdin,
+    _should_invoke_validator,
     _truncate,
     run,
 )
@@ -1013,3 +1017,117 @@ async def test_run_end_to_end_skips_security_on_test_failure(tmp_path: Path, mon
     assert "security" not in ctx.lower()
     assert _StubGitleaks.calls == []
     assert _StubSemgrep.calls == []
+
+
+# --- Task 5.6: depth-mode gating for validator ---------------------------
+
+
+def _green_batch() -> FindingBatch:
+    return FindingBatch(run_id="r1", depth="standard", tests_passed=5, tests_failed=0)
+
+
+def _red_batch() -> FindingBatch:
+    return FindingBatch(run_id="r1", depth="standard", tests_passed=0, tests_failed=2)
+
+
+def _cfg(depth: DepthMode, *, validator_enabled: bool = True) -> Config:
+    return Config(depth=depth, validator_enabled=validator_enabled)
+
+
+def test_validator_off_at_off_depth() -> None:
+    assert not _should_invoke_validator(_cfg(DepthMode.OFF), _green_batch())
+
+
+def test_validator_off_at_quick_depth() -> None:
+    assert not _should_invoke_validator(_cfg(DepthMode.QUICK), _green_batch())
+
+
+def test_validator_off_at_standard_depth() -> None:
+    assert not _should_invoke_validator(_cfg(DepthMode.STANDARD), _green_batch())
+
+
+def test_validator_fires_at_thorough_when_green() -> None:
+    assert _should_invoke_validator(_cfg(DepthMode.THOROUGH), _green_batch())
+
+
+def test_validator_does_not_fire_at_thorough_when_red() -> None:
+    assert not _should_invoke_validator(_cfg(DepthMode.THOROUGH), _red_batch())
+
+
+def test_validator_fires_at_paranoid_when_green() -> None:
+    assert _should_invoke_validator(_cfg(DepthMode.PARANOID), _green_batch())
+
+
+def test_validator_fires_at_paranoid_even_when_red() -> None:
+    assert _should_invoke_validator(_cfg(DepthMode.PARANOID), _red_batch())
+
+
+def test_validator_disabled_flag_blocks_all_depths() -> None:
+    for depth in (DepthMode.THOROUGH, DepthMode.PARANOID):
+        assert not _should_invoke_validator(
+            _cfg(depth, validator_enabled=False), _green_batch()
+        )
+
+
+def test_extract_diff_text_edit_payload() -> None:
+    payload = {
+        "tool_name": "Edit",
+        "tool_input": {"old_string": "old code", "new_string": "new code"},
+    }
+    diff = _extract_diff_text(payload)
+    assert "old code" in diff
+    assert "new code" in diff
+
+
+def test_extract_diff_text_write_payload() -> None:
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {"content": "full file content here"},
+    }
+    diff = _extract_diff_text(payload)
+    assert "full file content here" in diff
+
+
+def test_extract_diff_text_unknown_tool_returns_empty() -> None:
+    payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}}
+    assert _extract_diff_text(payload) == ""
+
+
+def test_format_additional_context_includes_validator_findings() -> None:
+    main_batch = FindingBatch(run_id="r1", depth="standard", summary_line="tailtest: 3/3 passed")
+    validator_finding = Finding.create(
+        kind=FindingKind.VALIDATOR,
+        severity=Severity.HIGH,
+        file=Path("src/foo.py"),
+        line=42,
+        message="Possible null deref",
+        run_id="r1",
+        rule_id="validator::src/foo.py:42",
+    )
+    validator_finding = validator_finding.model_copy(
+        update={"reasoning": "The check is missing a guard"}
+    )
+    vbatch = FindingBatch(
+        run_id="r1",
+        depth="thorough",
+        findings=[validator_finding],
+        summary_line="tailtest: validator found 1 issue(s)",
+    )
+    ctx_json = _format_additional_context(
+        main_batch,
+        manifest_rescanned=False,
+        validator_batch=vbatch,
+    )
+    envelope = json.loads(ctx_json)
+    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    assert "validator" in ctx.lower()
+    assert "Possible null deref" in ctx
+    assert "guard" in ctx  # reasoning snippet
+
+
+def test_format_additional_context_no_validator_batch() -> None:
+    batch = FindingBatch(run_id="r1", depth="standard", summary_line="tailtest: ok")
+    ctx_json = _format_additional_context(batch, manifest_rescanned=False)
+    envelope = json.loads(ctx_json)
+    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    assert "validator" not in ctx

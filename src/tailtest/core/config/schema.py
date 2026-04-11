@@ -242,3 +242,8 @@ class Config(BaseModel):
     # True = enabled (fires at thorough+ depth on agent projects).
     # False = user dismissed the offer (never ask again).
     ai_checks_enabled: bool | None = None
+
+    # Phase 5 Task 5.6: Jiminy Cricket validator subagent.
+    # True = fires at thorough/paranoid depth (default).
+    # False = disabled (user opted out via /tailtest config validator.enabled false).
+    validator_enabled: bool = True
