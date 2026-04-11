@@ -160,9 +160,11 @@ class ProjectScanner:
         content_hash = detectors.compute_content_hash(self.project_root)
 
         # 11. Agent entry-point detection (Phase 6 Task 6.3)
-        agent_entry_points = detectors.detect_entry_points(
-            self.project_root, files, primary_language
-        ) if ai_surface == AISurface.AGENT else []
+        agent_entry_points = (
+            detectors.detect_entry_points(self.project_root, files, primary_language)
+            if ai_surface == AISurface.AGENT
+            else []
+        )
 
         elapsed = time.monotonic() * 1000.0 - start_ms
         scan_mode = "partial" if hit_ceiling else "shallow"

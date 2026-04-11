@@ -1065,14 +1065,13 @@ def test_validator_fires_at_paranoid_even_when_red() -> None:
 
 def test_validator_disabled_flag_blocks_all_depths() -> None:
     for depth in (DepthMode.THOROUGH, DepthMode.PARANOID):
-        assert not _should_invoke_validator(
-            _cfg(depth, validator_enabled=False), _green_batch()
-        )
+        assert not _should_invoke_validator(_cfg(depth, validator_enabled=False), _green_batch())
 
 
 def test_extract_diff_text_git_diff_preferred(monkeypatch: pytest.MonkeyPatch) -> None:
     """When git diff HEAD succeeds, it takes priority over payload fallback."""
     import subprocess
+
     fake_result = subprocess.CompletedProcess(
         args=["git", "diff", "HEAD"],
         returncode=0,
@@ -1093,6 +1092,7 @@ def test_extract_diff_text_git_diff_preferred(monkeypatch: pytest.MonkeyPatch) -
 def test_extract_diff_text_edit_payload_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     """Falls back to payload when git diff returns empty."""
     import subprocess
+
     fake_result = subprocess.CompletedProcess(
         args=["git", "diff", "HEAD"],
         returncode=0,

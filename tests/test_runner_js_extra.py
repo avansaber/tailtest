@@ -33,9 +33,7 @@ def _pkg(tmp_path: Path, **fields: object) -> Path:
 
 
 def _shell(stdout: str = "", stderr: str = "", returncode: int = 0) -> ShellResult:
-    return ShellResult(
-        returncode=returncode, stdout=stdout, stderr=stderr, duration_ms=10.0
-    )
+    return ShellResult(returncode=returncode, stdout=stdout, stderr=stderr, duration_ms=10.0)
 
 
 # ---------------------------------------------------------------------------
@@ -105,30 +103,36 @@ def test_tap_parse_mixed() -> None:
 
 def test_is_node_test_script_direct() -> None:
     from tailtest.core.runner.node_test import _is_node_test_script
+
     assert _is_node_test_script("node --test") is True
 
 
 def test_is_node_test_script_with_loader_flags() -> None:
     """Feynman-style: node --import tsx --test --test-concurrency=1 tests/*.test.ts"""
     from tailtest.core.runner.node_test import _is_node_test_script
-    assert _is_node_test_script(
-        "node --import tsx --test --test-concurrency=1 tests/*.test.ts"
-    ) is True
+
+    assert (
+        _is_node_test_script("node --import tsx --test --test-concurrency=1 tests/*.test.ts")
+        is True
+    )
 
 
 def test_is_node_test_script_node_colon_test() -> None:
     from tailtest.core.runner.node_test import _is_node_test_script
+
     assert _is_node_test_script("tsx --import node:test tests/") is True
 
 
 def test_is_node_test_script_jest_is_false() -> None:
     from tailtest.core.runner.node_test import _is_node_test_script
+
     assert _is_node_test_script("jest") is False
 
 
 def test_is_node_test_script_npx_tsx_is_false() -> None:
     """npx tsx --test is tsx's own runner, not node:test."""
     from tailtest.core.runner.node_test import _is_node_test_script
+
     assert _is_node_test_script("npx tsx --test") is False
 
 
@@ -164,9 +168,7 @@ def test_node_test_discover_true_node_test_script(tmp_path: Path, monkeypatch) -
     assert runner.discover() is True
 
 
-def test_node_test_discover_defers_to_jsrunner_when_vitest(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_node_test_discover_defers_to_jsrunner_when_vitest(tmp_path: Path, monkeypatch) -> None:
     """Projects with vitest in devDeps should NOT be picked up by NodeTestRunner."""
     _pkg(
         tmp_path,
@@ -178,9 +180,7 @@ def test_node_test_discover_defers_to_jsrunner_when_vitest(
     assert runner.discover() is False
 
 
-def test_node_test_discover_defers_to_jsrunner_when_jest(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_node_test_discover_defers_to_jsrunner_when_jest(tmp_path: Path, monkeypatch) -> None:
     _pkg(
         tmp_path,
         devDependencies={"jest": "^29.0.0"},
@@ -221,13 +221,35 @@ async def test_node_test_run_json_all_pass(tmp_path: Path, monkeypatch) -> None:
     _pkg(tmp_path, scripts={"test": "node --test"})
     monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/node")
 
-    ndjson = "\n".join([
-        json.dumps({"type": "test:pass", "data": {"name": "adds numbers", "nesting": 0, "testNumber": 1, "details": {"duration_ms": 1.0}}}),
-        json.dumps({"type": "test:pass", "data": {"name": "handles zero", "nesting": 0, "testNumber": 2, "details": {"duration_ms": 0.5}}}),
-        json.dumps({"type": "test:diagnostic", "data": {"nesting": 0, "message": "tests 2"}}),
-        json.dumps({"type": "test:diagnostic", "data": {"nesting": 0, "message": "pass 2"}}),
-        json.dumps({"type": "test:diagnostic", "data": {"nesting": 0, "message": "fail 0"}}),
-    ])
+    ndjson = "\n".join(
+        [
+            json.dumps(
+                {
+                    "type": "test:pass",
+                    "data": {
+                        "name": "adds numbers",
+                        "nesting": 0,
+                        "testNumber": 1,
+                        "details": {"duration_ms": 1.0},
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "test:pass",
+                    "data": {
+                        "name": "handles zero",
+                        "nesting": 0,
+                        "testNumber": 2,
+                        "details": {"duration_ms": 0.5},
+                    },
+                }
+            ),
+            json.dumps({"type": "test:diagnostic", "data": {"nesting": 0, "message": "tests 2"}}),
+            json.dumps({"type": "test:diagnostic", "data": {"nesting": 0, "message": "pass 2"}}),
+            json.dumps({"type": "test:diagnostic", "data": {"nesting": 0, "message": "fail 0"}}),
+        ]
+    )
 
     runner = NodeTestRunner(tmp_path)
     with patch.object(runner, "shell_run", new=AsyncMock(return_value=_shell(stdout=ndjson))):
@@ -243,10 +265,35 @@ async def test_node_test_run_json_one_failure(tmp_path: Path, monkeypatch) -> No
     _pkg(tmp_path, scripts={"test": "node --test"})
     monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/node")
 
-    ndjson = "\n".join([
-        json.dumps({"type": "test:pass", "data": {"name": "passes", "nesting": 0, "testNumber": 1, "details": {"duration_ms": 1.0}}}),
-        json.dumps({"type": "test:fail", "data": {"name": "fails", "nesting": 0, "testNumber": 2, "details": {"duration_ms": 0.5, "error": {"message": "Expected 1 to equal 2", "code": "ERR_ASSERTION"}}}}),
-    ])
+    ndjson = "\n".join(
+        [
+            json.dumps(
+                {
+                    "type": "test:pass",
+                    "data": {
+                        "name": "passes",
+                        "nesting": 0,
+                        "testNumber": 1,
+                        "details": {"duration_ms": 1.0},
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "test:fail",
+                    "data": {
+                        "name": "fails",
+                        "nesting": 0,
+                        "testNumber": 2,
+                        "details": {
+                            "duration_ms": 0.5,
+                            "error": {"message": "Expected 1 to equal 2", "code": "ERR_ASSERTION"},
+                        },
+                    },
+                }
+            ),
+        ]
+    )
 
     runner = NodeTestRunner(tmp_path)
     with patch.object(runner, "shell_run", new=AsyncMock(return_value=_shell(stdout=ndjson))):
@@ -266,10 +313,32 @@ async def test_node_test_run_skip_counted(tmp_path: Path, monkeypatch) -> None:
     _pkg(tmp_path, scripts={"test": "node --test"})
     monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/node")
 
-    ndjson = "\n".join([
-        json.dumps({"type": "test:pass", "data": {"name": "passes", "nesting": 0, "testNumber": 1, "details": {"duration_ms": 1.0}}}),
-        json.dumps({"type": "test:skip", "data": {"name": "skipped", "nesting": 0, "testNumber": 2, "details": {"duration_ms": 0.0}}}),
-    ])
+    ndjson = "\n".join(
+        [
+            json.dumps(
+                {
+                    "type": "test:pass",
+                    "data": {
+                        "name": "passes",
+                        "nesting": 0,
+                        "testNumber": 1,
+                        "details": {"duration_ms": 1.0},
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "test:skip",
+                    "data": {
+                        "name": "skipped",
+                        "nesting": 0,
+                        "testNumber": 2,
+                        "details": {"duration_ms": 0.0},
+                    },
+                }
+            ),
+        ]
+    )
 
     runner = NodeTestRunner(tmp_path)
     with patch.object(runner, "shell_run", new=AsyncMock(return_value=_shell(stdout=ndjson))):
@@ -353,16 +422,18 @@ async def test_mocha_run_all_pass(tmp_path: Path, monkeypatch) -> None:
     _pkg(tmp_path, devDependencies={"mocha": "^10.0.0"})
     monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/npx")
 
-    mocha_json = json.dumps({
-        "stats": {"passes": 3, "failures": 0, "pending": 0},
-        "passes": [
-            {"title": "t1", "fullTitle": "suite t1"},
-            {"title": "t2", "fullTitle": "suite t2"},
-            {"title": "t3", "fullTitle": "suite t3"},
-        ],
-        "failures": [],
-        "pending": [],
-    })
+    mocha_json = json.dumps(
+        {
+            "stats": {"passes": 3, "failures": 0, "pending": 0},
+            "passes": [
+                {"title": "t1", "fullTitle": "suite t1"},
+                {"title": "t2", "fullTitle": "suite t2"},
+                {"title": "t3", "fullTitle": "suite t3"},
+            ],
+            "failures": [],
+            "pending": [],
+        }
+    )
 
     runner = MochaRunner(tmp_path)
     with patch.object(runner, "shell_run", new=AsyncMock(return_value=_shell(stdout=mocha_json))):
@@ -378,17 +449,21 @@ async def test_mocha_run_one_failure(tmp_path: Path, monkeypatch) -> None:
     _pkg(tmp_path, devDependencies={"mocha": "^10.0.0"})
     monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/npx")
 
-    mocha_json = json.dumps({
-        "stats": {"passes": 1, "failures": 1, "pending": 1},
-        "passes": [{"title": "passes", "fullTitle": "suite passes"}],
-        "failures": [{
-            "title": "fails",
-            "fullTitle": "suite fails",
-            "file": "/path/to/test.js",
-            "err": {"message": "AssertionError: 1 != 2", "stack": "..."},
-        }],
-        "pending": [{"title": "todo", "fullTitle": "suite todo"}],
-    })
+    mocha_json = json.dumps(
+        {
+            "stats": {"passes": 1, "failures": 1, "pending": 1},
+            "passes": [{"title": "passes", "fullTitle": "suite passes"}],
+            "failures": [
+                {
+                    "title": "fails",
+                    "fullTitle": "suite fails",
+                    "file": "/path/to/test.js",
+                    "err": {"message": "AssertionError: 1 != 2", "stack": "..."},
+                }
+            ],
+            "pending": [{"title": "todo", "fullTitle": "suite todo"}],
+        }
+    )
 
     runner = MochaRunner(tmp_path)
     with patch.object(runner, "shell_run", new=AsyncMock(return_value=_shell(stdout=mocha_json))):
@@ -410,7 +485,11 @@ async def test_mocha_run_crash_returns_crash_batch(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/npx")
 
     runner = MochaRunner(tmp_path)
-    with patch.object(runner, "shell_run", new=AsyncMock(return_value=_shell(stdout="", stderr="Cannot find module"))):
+    with patch.object(
+        runner,
+        "shell_run",
+        new=AsyncMock(return_value=_shell(stdout="", stderr="Cannot find module")),
+    ):
         batch = await runner.run([], run_id="run-mocha-crash")
 
     assert batch.tests_failed == 1
@@ -572,7 +651,9 @@ async def test_tape_run_specific_test_ids(tmp_path: Path, monkeypatch) -> None:
     tap = "TAP version 13\nok 1 my test\n"
 
     runner = TapeRunner(tmp_path)
-    with patch.object(runner, "shell_run", new=AsyncMock(return_value=_shell(stdout=tap))) as mock_run:
+    with patch.object(
+        runner, "shell_run", new=AsyncMock(return_value=_shell(stdout=tap))
+    ) as mock_run:
         batch = await runner.run(["test/test-specific.js"], run_id="run-tape-specific")
 
     assert batch.tests_passed == 1
@@ -602,7 +683,9 @@ def test_new_runners_in_default_registry() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_jsrunner_still_rejects_bare_test_dir_without_framework(tmp_path: Path, monkeypatch) -> None:
+def test_jsrunner_still_rejects_bare_test_dir_without_framework(
+    tmp_path: Path, monkeypatch
+) -> None:
     """JSRunner must not discover a project that only has node --test signal."""
     from tailtest.core.runner.javascript import JSRunner
 

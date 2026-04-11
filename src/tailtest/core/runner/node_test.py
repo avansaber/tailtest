@@ -187,9 +187,7 @@ class NodeTestRunner(BaseRunner):
                     result.stdout, run_id=run_id, duration_ms=duration_ms
                 )
             except (json.JSONDecodeError, KeyError):
-                logger.debug(
-                    "NodeTestRunner: JSON parse failed, trying TAP fallback"
-                )
+                logger.debug("NodeTestRunner: JSON parse failed, trying TAP fallback")
 
         # JSON failed: try TAP output (re-run with --test-reporter=tap).
         if tsx_available:
@@ -213,19 +211,13 @@ class NodeTestRunner(BaseRunner):
         duration_ms = time.monotonic() * 1000.0 - start_ms
         combined_output = tap_result.stdout or result.stdout or result.stderr
         if not combined_output.strip():
-            return self._crash_batch(
-                run_id=run_id, stderr=result.stderr, duration_ms=duration_ms
-            )
+            return self._crash_batch(run_id=run_id, stderr=result.stderr, duration_ms=duration_ms)
 
-        return self._parse_tap_output(
-            combined_output, run_id=run_id, duration_ms=duration_ms
-        )
+        return self._parse_tap_output(combined_output, run_id=run_id, duration_ms=duration_ms)
 
     # --- Parsers ---
 
-    def _parse_json_events(
-        self, stdout: str, *, run_id: str, duration_ms: float
-    ) -> FindingBatch:
+    def _parse_json_events(self, stdout: str, *, run_id: str, duration_ms: float) -> FindingBatch:
         """Parse NDJSON event stream from ``node --test --test-reporter=json``.
 
         Each line is one JSON event object with a ``type`` field:
@@ -259,11 +251,7 @@ class NodeTestRunner(BaseRunner):
                 name = data.get("name") or "unknown"
                 details = data.get("details") or {}
                 err = details.get("error") or {}
-                message = (
-                    err.get("message")
-                    or err.get("stack", "")
-                    or f"{name} failed"
-                )
+                message = err.get("message") or err.get("stack", "") or f"{name} failed"
                 failed += 1
                 findings.append(
                     Finding.create(
@@ -291,9 +279,7 @@ class NodeTestRunner(BaseRunner):
             duration_ms=duration_ms,
         )
 
-    def _parse_tap_output(
-        self, stdout: str, *, run_id: str, duration_ms: float
-    ) -> FindingBatch:
+    def _parse_tap_output(self, stdout: str, *, run_id: str, duration_ms: float) -> FindingBatch:
         """Parse TAP output from ``node --test --test-reporter=tap``."""
         entries = parse_tap(stdout)
         passed = sum(1 for e in entries if e.passed and not e.skipped)
@@ -352,9 +338,7 @@ class NodeTestRunner(BaseRunner):
             tests_skipped=skipped,
         )
 
-    def _crash_batch(
-        self, *, run_id: str, stderr: str, duration_ms: float
-    ) -> FindingBatch:
+    def _crash_batch(self, *, run_id: str, stderr: str, duration_ms: float) -> FindingBatch:
         msg = (stderr or "node --test produced no output").strip()
         return FindingBatch(
             run_id=run_id,
@@ -395,9 +379,7 @@ class NodeTestRunner(BaseRunner):
 
     def _pkg_has_dep(self, dep: str) -> bool:
         try:
-            pkg = json.loads(
-                (self.project_root / "package.json").read_text(encoding="utf-8")
-            )
+            pkg = json.loads((self.project_root / "package.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return False
         for section in ("devDependencies", "dependencies"):

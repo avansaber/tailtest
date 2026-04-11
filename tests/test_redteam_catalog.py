@@ -138,9 +138,7 @@ def test_every_attack_has_payload() -> None:
 
 def test_every_attack_has_expected_outcome() -> None:
     for attack in load_attacks():
-        assert attack.expected_outcome.strip(), (
-            f"Attack {attack.id!r} has empty expected_outcome"
-        )
+        assert attack.expected_outcome.strip(), f"Attack {attack.id!r} has empty expected_outcome"
 
 
 def test_every_attack_has_valid_severity() -> None:
@@ -239,9 +237,7 @@ def test_load_attacks_raises_on_empty_attacks(tmp_path: Path) -> None:
 
 
 def test_load_attacks_raises_on_duplicate_ids(tmp_path: Path) -> None:
-    catalog = _make_catalog(
-        [_minimal_attack("dup_001"), _minimal_attack("dup_001")]
-    )
+    catalog = _make_catalog([_minimal_attack("dup_001"), _minimal_attack("dup_001")])
     f = tmp_path / "attacks.yaml"
     f.write_text(catalog)
     with pytest.raises(ValueError, match="Duplicate attack id"):

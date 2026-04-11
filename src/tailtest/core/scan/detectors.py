@@ -423,9 +423,11 @@ def _detect_rust_frameworks(root: Path) -> list[DetectedFramework]:
                             DetectedFramework(
                                 name=pkg_name,
                                 confidence=AIConfidence.MEDIUM,
-                                source=str(toml_path.relative_to(root)
-                                           if toml_path.is_relative_to(root)
-                                           else toml_path.name),
+                                source=str(
+                                    toml_path.relative_to(root)
+                                    if toml_path.is_relative_to(root)
+                                    else toml_path.name
+                                ),
                                 category="agent",
                             )
                         )
@@ -796,18 +798,14 @@ def detect_ai_surface(
     # "rusty-claude-cli" and "mock-anthropic-service") that cannot be in the
     # static name set because they are project-specific.
     agent_frameworks: set[str] = {
-        f.name
-        for f in frameworks
-        if f.name in _AGENT_FRAMEWORK_NAMES or f.category == "agent"
+        f.name for f in frameworks if f.name in _AGENT_FRAMEWORK_NAMES or f.category == "agent"
     }
     if agent_frameworks:
         signals.extend(f"framework:{name}" for name in sorted(agent_frameworks))
 
     # Signal 2: SDK frameworks (could be utility or agent)
     sdk_frameworks: set[str] = {
-        f.name
-        for f in frameworks
-        if f.name in _SDK_FRAMEWORK_NAMES or f.category == "sdk"
+        f.name for f in frameworks if f.name in _SDK_FRAMEWORK_NAMES or f.category == "sdk"
     }
     if sdk_frameworks:
         signals.extend(f"sdk:{name}" for name in sorted(sdk_frameworks))
@@ -968,7 +966,11 @@ _TS_ENTRY_PATTERNS: list[tuple[re.Pattern[str], str, str | None]] = [
     # Vercel AI SDK: streamText / generateText
     (re.compile(r"(?:streamText|generateText|createAI)\s*\("), "high", "vercel-ai-sdk"),
     # UserMessage or string → Promise<...>
-    (re.compile(r"async\s+function\s+(\w+)\s*\(\s*\w+\s*:\s*(?:string|UserMessage)"), "medium", None),
+    (
+        re.compile(r"async\s+function\s+(\w+)\s*\(\s*\w+\s*:\s*(?:string|UserMessage)"),
+        "medium",
+        None,
+    ),
     # export async function named run/invoke/handle
     (re.compile(r"export\s+(?:async\s+)?function\s+(run|invoke|handle)\s*\("), "medium", None),
 ]
