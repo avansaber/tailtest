@@ -1818,7 +1818,7 @@ def test_parse_cargo_audit_json_one_vuln() -> None:
     findings = _parse_cargo_audit_json(json.dumps(data), run_id="r1")
     assert len(findings) == 1
     f = findings[0]
-    assert "RUSTSEC-2024-0001" in f.rule_id
+    assert f.rule_id is not None and "RUSTSEC-2024-0001" in f.rule_id
     assert "foo" in f.message
     assert "Use-after-free" in f.message
     assert f.severity.value in {"critical", "high", "medium", "low"}
