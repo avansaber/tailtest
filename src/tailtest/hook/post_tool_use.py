@@ -403,6 +403,23 @@ async def run(
         except Exception as exc:  # noqa: BLE001
             logger.warning("LLM-judge invocation failed: %s", exc)
 
+    # Validator subagent (Phase 5 Task 5.6). Fires at thorough+ depth when
+    # validator_enabled is True. At thorough depth, only fires when cheap
+    # path is green (tests_failed == 0) so validator noise does not compete
+    # with failing test signal. At paranoid depth, fires regardless.
+    validator_batch: FindingBatch | None = None
+    if _should_invoke_validator(config, batch):
+        try:
+            diff_text = _extract_diff_text(payload)
+            validator_batch = await _invoke_validator_tool(
+                project_root=root,
+                changed_files=changed_files,
+                diff=diff_text,
+                run_id=run_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("validator invocation failed: %s", exc)
+
     stdout_json = _format_additional_context(
         batch,
         manifest_rescanned=manifest_rescanned,
@@ -411,6 +428,7 @@ async def run(
         rec_surface_line=rec_surface_line,
         ai_checks_note=ai_checks_note,
         llm_judge_lines=llm_judge_lines,
+        validator_batch=validator_batch,
     )
     return HookResult(stdout_json=stdout_json, reason="ok")
 
@@ -917,6 +935,7 @@ def _format_additional_context(
     rec_surface_line: str | None = None,
     ai_checks_note: str | None = None,
     llm_judge_lines: list[str] | None = None,
+    validator_batch: FindingBatch | None = None,
 ) -> str:
     """Build the hookSpecificOutput JSON payload for Claude's next turn.
 
@@ -1000,6 +1019,16 @@ def _format_additional_context(
         for judge_line in llm_judge_lines:
             lines.append(judge_line)
 
+    # Validator findings (Phase 5 Task 5.6): appended after all other output.
+    if validator_batch is not None and validator_batch.findings:
+        lines.append("")
+        lines.append(f"validator: {validator_batch.summary_line}")
+        for vf in validator_batch.findings[:3]:
+            loc = f"{vf.file}:{vf.line}" if vf.line else str(vf.file)
+            lines.append(f"  [{vf.severity.value}] {loc} {vf.message}")
+            if vf.reasoning:
+                lines.append(f"    reasoning: {vf.reasoning[:150]}")
+
     additional_context = "\n".join(lines)
     additional_context = _truncate(additional_context)
 
@@ -1010,6 +1039,85 @@ def _format_additional_context(
         }
     }
     return json.dumps(envelope)
+
+
+def _should_invoke_validator(config: Config, batch: FindingBatch) -> bool:
+    """Return True if the validator subagent should fire this turn.
+
+    Rules (Task 5.6):
+    - off / quick / standard: never
+    - thorough: only when cheap path is green (tests_failed == 0)
+    - paranoid: always (even after cheap-path failures)
+    - validator_enabled config flag must be True (default)
+    """
+    if not config.validator_enabled:
+        return False
+    if config.depth == DepthMode.PARANOID:
+        return True
+    if config.depth == DepthMode.THOROUGH:
+        return batch.tests_failed == 0
+    return False
+
+
+def _extract_diff_text(payload: dict) -> str:
+    """Extract a best-effort diff from the tool payload for the validator."""
+    tool_name = payload.get("tool_name") or ""
+    tool_input = payload.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        return ""
+    if tool_name == "Edit":
+        old = tool_input.get("old_string") or ""
+        new = tool_input.get("new_string") or ""
+        return f"--- old\n+++ new\n@@ @@\n-{old[:2000]}\n+{new[:2000]}"
+    if tool_name == "Write":
+        content = tool_input.get("content") or ""
+        return f"+++ new file\n{content[:4000]}"
+    return ""
+
+
+async def _invoke_validator_tool(
+    *,
+    project_root: Path,
+    changed_files: list[Path],
+    diff: str,
+    run_id: str,
+) -> FindingBatch | None:
+    """Spawn the invoke_validator MCP tool in-process for the hook.
+
+    Instead of going through the full MCP JSON-RPC round-trip, we
+    instantiate the tool directly and call invoke() -- same code path
+    the MCP server uses, but without the network overhead.
+    """
+    from tailtest.mcp.tools.invoke_validator import InvokeValidatorTool
+
+    tool = InvokeValidatorTool(project_root)
+    file_path_strs = [str(f.relative_to(project_root)) for f in changed_files]
+    result = await tool.invoke(
+        {
+            "file_paths": file_path_strs,
+            "diff": diff,
+            "timeout": 30,
+        }
+    )
+    if result.get("isError"):
+        logger.warning("invoke_validator returned error: %s", result.get("content"))
+        return None
+
+    content_blocks = result.get("content") or []
+    if not content_blocks:
+        return None
+    text = content_blocks[0].get("text") or ""
+    if not text:
+        return None
+
+    import json as _json
+
+    try:
+        data = _json.loads(text)
+        return FindingBatch.model_validate(data)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("invoke_validator: could not parse FindingBatch: %s", exc)
+        return None
 
 
 def _severity_rank(severity: str) -> int:
