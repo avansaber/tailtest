@@ -480,3 +480,114 @@ def test_render_skips_col_when_missing() -> None:
 async def test_async_compatibility_placeholder() -> None:
     """Sanity: pytest-asyncio is active (used by other security tests)."""
     assert True
+
+
+# --- Task 6.5: Red-team finding rendering ---------------------------------
+
+
+def _redteam_finding(
+    *,
+    category: str = "prompt_injection",
+    reasoning: str = "No input sanitization present",
+    confidence: str = "high",
+    cwe_id: str | None = "CWE-77",
+    severity: Severity = Severity.HIGH,
+) -> Finding:
+    f = Finding.create(
+        kind=FindingKind.REDTEAM,
+        severity=severity,
+        file=Path("(agent entry point)"),
+        line=0,
+        message=f"[{category}] Ignore-previous instructions: agent lacks sanitization",
+        run_id="redteam",
+        rule_id=f"redteam/{category}/pi_001",
+    )
+    return f.model_copy(update={"reasoning": reasoning, "confidence": confidence, "cwe_id": cwe_id})
+
+
+def test_redteam_finding_renders_in_red_team_section() -> None:
+    batch = FindingBatch(
+        run_id="redteam",
+        depth="paranoid",
+        findings=[_redteam_finding()],
+    )
+    rendered = HTMLReporter().render(batch)
+    assert "Red team" in rendered
+
+
+def test_redteam_finding_shows_reasoning() -> None:
+    batch = FindingBatch(
+        run_id="redteam",
+        depth="paranoid",
+        findings=[_redteam_finding(reasoning="The run() function passes input directly to LLM")],
+    )
+    rendered = HTMLReporter().render(batch)
+    assert "passes input directly to LLM" in rendered
+
+
+def test_redteam_finding_shows_confidence_badge() -> None:
+    batch = FindingBatch(
+        run_id="redteam",
+        depth="paranoid",
+        findings=[_redteam_finding(confidence="high")],
+    )
+    rendered = HTMLReporter().render(batch)
+    assert "conf-badge" in rendered
+    assert "high" in rendered
+
+
+def test_redteam_finding_shows_cwe_in_extra() -> None:
+    batch = FindingBatch(
+        run_id="redteam",
+        depth="paranoid",
+        findings=[_redteam_finding(cwe_id="CWE-77")],
+    )
+    rendered = HTMLReporter().render(batch)
+    assert "CWE-77" in rendered
+
+
+def test_redteam_finding_shows_category_in_rule_id() -> None:
+    batch = FindingBatch(
+        run_id="redteam",
+        depth="paranoid",
+        findings=[_redteam_finding(category="jailbreak")],
+    )
+    rendered = HTMLReporter().render(batch)
+    assert "jailbreak" in rendered
+
+
+def test_redteam_finding_severity_stripe_class() -> None:
+    batch = FindingBatch(
+        run_id="redteam",
+        depth="paranoid",
+        findings=[_redteam_finding(severity=Severity.CRITICAL)],
+    )
+    rendered = HTMLReporter().render(batch)
+    assert "sev-critical" in rendered
+
+
+def test_redteam_finding_no_reasoning_renders_cleanly() -> None:
+    f = Finding.create(
+        kind=FindingKind.REDTEAM,
+        severity=Severity.MEDIUM,
+        file=Path("(agent entry point)"),
+        line=0,
+        message="[tool_misuse] something bad",
+        run_id="redteam",
+        rule_id="redteam/tool_misuse/tm_001",
+    )
+    batch = FindingBatch(run_id="redteam", depth="paranoid", findings=[f])
+    rendered = HTMLReporter().render(batch)
+    assert "Red team" in rendered
+    assert "reasoning" not in rendered
+
+
+def test_redteam_finding_xss_safe_reasoning() -> None:
+    batch = FindingBatch(
+        run_id="redteam",
+        depth="paranoid",
+        findings=[_redteam_finding(reasoning="<script>alert(1)</script>")],
+    )
+    rendered = HTMLReporter().render(batch)
+    assert "<script>" not in rendered
+    assert "&lt;script&gt;" in rendered
