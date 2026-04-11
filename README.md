@@ -9,21 +9,20 @@ tailtest watches every edit your AI agent makes inside Claude Code, runs the tes
 ## Quickstart (5 minutes)
 
 ```bash
-# 1. Install the Python package (the hook needs it on the same python3)
-python3 -m pip install tailtester
-
-# 2. Install the plugin from the GitHub marketplace
+# 1. Install the plugin from the GitHub marketplace (no pip needed)
 claude plugin marketplace add avansaber/tailtest
-claude plugin install tailtest@avansaber-tailtest
+claude plugin install tailtest@avansaber
 
-# 3. Restart your Claude Code session
+# 2. Restart your Claude Code session
 # (the skill registry doesn't hot-load, so a restart is mandatory)
 
-# 4. Open a project and let Claude edit a Python or JS/TS file
+# 3. Open a project and let Claude edit a Python or JS/TS file
 # tailtest's hot loop fires automatically on every Edit/Write
 ```
 
-After the first edit, look for `tailtest: N/N tests passed · M.Ms` in Claude's next-turn context. That is the hot loop talking to Claude. The full report lands at `.tailtest/reports/latest.html` and `.tailtest/reports/latest.json`.
+After the first edit, look for `tailtest: N/N tests passed · M.Ms` in Claude's next-turn context. That is the hot loop talking to Claude. The full output lands at `.tailtest/reports/latest.html` and `.tailtest/reports/latest.json`.
+
+**Want the standalone CLI too?** `pip install tailtester` gives you `tailtest run`, `tailtest doctor`, and `tailtest scan` outside of Claude Code. It is optional for plugin users.
 
 For the full walkthrough including troubleshooting, see [`docs/quickstart.md`](docs/quickstart.md). For install gotchas (PEP 668, v1 upgrade, hook Python resolution), see [`docs/install.md`](docs/install.md). For the full config schema, see [`docs/configuration.md`](docs/configuration.md).
 
@@ -80,16 +79,17 @@ Phase 1 configs (with `sast: true/false` as plain bools) keep parsing — the lo
 
 ## Distribution channels
 
-| Channel | When to use it |
-|---|---|
-| **Claude Code plugin** (`claude plugin install tailtest@avansaber/tailtest`) | Full experience: hot loop hooks, skills, MCP, on-disk reports. The recommended path. |
-| **Standalone CLI** (`pip install tailtester`) | CI pipelines, raw terminal use, or any workflow that doesn't run inside Claude Code. The PyPI package name is `tailtester`; the importable Python package is `tailtest`. |
-| **MCP server** (`tailtest mcp-serve`) | Cursor, Windsurf, Codex, or any MCP-aware IDE. Phase 4 will harden this path. |
+| Channel | Install | When to use it |
+|---|---|---|
+| **Claude Code plugin** (recommended) | `claude plugin marketplace add avansaber/tailtest && claude plugin install tailtest@avansaber` | Full experience: hot loop hooks, skills, MCP, on-disk output. No pip required. |
+| **Standalone CLI** (optional) | `pip install tailtester` | CI pipelines, raw terminal use, or any workflow outside Claude Code. The PyPI package name is `tailtester`; the importable Python package is `tailtest`. |
+| **MCP server** | `tailtest mcp-serve` | Cursor, Windsurf, Codex, or any MCP-aware IDE. Requires the pip install. Phase 4 will harden this path. |
 
 ## Install notes
 
+- **pip is optional for plugin users.** The plugin is self-contained; the bootstrap finds the tailtest engine inside the plugin tree. You only need `pip install tailtester` if you want the standalone CLI or MCP server outside Claude Code.
 - **Restart Claude Code after installing or upgrading the plugin.** The skill registry and hook registry are frozen at session start; new plugins aren't picked up mid-session.
-- **macOS + Homebrew Python users:** the PEP 668 system-Python protection means `pip install tailtester` needs `--break-system-packages` or (better) install via `pipx install tailtester` to keep tailtest in its own venv.
+- **macOS + Homebrew Python users:** if you do install the standalone CLI, PEP 668 means `pip install tailtester` needs `--break-system-packages` or (better) `pipx install tailtester` to keep tailtest in its own venv.
 - **Upgrading from v1 (`tailtester` 0.2.x)?** Uninstall the v1 package first (`pip uninstall tailtester`). The v1 and v2 packages share the `tailtest.hook` import path; without the uninstall step, v1 shadows v2.
 
 ## What tailtest does NOT do (yet)
