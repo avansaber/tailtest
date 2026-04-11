@@ -336,6 +336,65 @@ async def test_invoke_validator_appends_memory(
     assert "2026-04-10" in memory_path.read_text()
 
 
+# ---------------------------------------------------------------------------
+# Task 5.3: Tool restriction verification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_subprocess_cmd_includes_allowed_tools(tool: InvokeValidatorTool) -> None:
+    """Verify the claude subprocess is called with the right tool restriction flags."""
+    captured_cmd: list[str] = []
+
+    async def fake_exec(*args: str, **kwargs: object) -> MagicMock:
+        captured_cmd.extend(args)
+        proc = _fake_proc("[]")
+        return proc
+
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(b"[]", b"")):
+            with patch("shutil.which", return_value="/usr/bin/claude"):
+                await tool.invoke({"diff": "+x", "timeout": 5})
+
+    cmd_str = " ".join(captured_cmd)
+    assert "--allowedTools" in cmd_str
+    assert "Read" in cmd_str
+    assert "Grep" in cmd_str
+    assert "Glob" in cmd_str
+    assert "Bash" in cmd_str
+    assert "--disallowedTools" in cmd_str
+    assert "Write" in cmd_str
+    assert "Edit" in cmd_str
+
+
+@pytest.mark.asyncio
+async def test_subprocess_cmd_includes_no_session_persistence(tool: InvokeValidatorTool) -> None:
+    """Verify --no-session-persistence is passed to prevent session leakage."""
+    captured_cmd: list[str] = []
+
+    async def fake_exec(*args: str, **kwargs: object) -> MagicMock:
+        captured_cmd.extend(args)
+        return _fake_proc("[]")
+
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(b"[]", b"")):
+            with patch("shutil.which", return_value="/usr/bin/claude"):
+                await tool.invoke({"timeout": 5})
+
+    assert "--no-session-persistence" in captured_cmd
+
+
+@pytest.mark.asyncio
+async def test_defensive_layer_blocks_file_write_markers(tool: InvokeValidatorTool) -> None:
+    """Defensive parser blocks output containing <write_file> tags."""
+    rogue = '[{"severity": "info", "file": "x.py", "line": 1, "message": "ok"}]<write_file>path</write_file>'
+    with patch("asyncio.create_subprocess_exec", return_value=_fake_proc(rogue)):
+        with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(rogue.encode(), b"")):
+            result = await tool.invoke({"timeout": 5})
+    batch = json.loads(result["content"][0]["text"])
+    assert batch["findings"] == []
+
+
 def test_tool_is_registered_in_all_tools() -> None:
     from tailtest.mcp.tools import ALL_TOOLS
     names = [t.name for t in ALL_TOOLS]
