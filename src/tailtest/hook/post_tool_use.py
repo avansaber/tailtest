@@ -1060,11 +1060,37 @@ def _should_invoke_validator(config: Config, batch: FindingBatch) -> bool:
 
 
 def _extract_diff_text(payload: dict) -> str:
-    """Extract a best-effort diff from the tool payload for the validator."""
+    """Extract a diff for the validator.
+
+    Priority:
+    1. ``git diff HEAD`` (most accurate -- reflects actual on-disk change).
+    2. Fallback: reconstruct from tool payload (Edit old/new strings or Write
+       content) for projects that are not git repos.
+
+    Using git diff prevents the validator from reasoning about a diff that
+    does not match what is actually on disk (the Session 0 dogfood finding).
+    """
+    import subprocess
+
     tool_name = payload.get("tool_name") or ""
     tool_input = payload.get("tool_input") or {}
     if not isinstance(tool_input, dict):
-        return ""
+        tool_input = {}
+
+    # Try git diff HEAD first (covers both staged and unstaged changes).
+    try:
+        result = subprocess.run(
+            ["git", "diff", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout[:8_000]
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    # Fallback: reconstruct from payload.
     if tool_name == "Edit":
         old = tool_input.get("old_string") or ""
         new = tool_input.get("new_string") or ""

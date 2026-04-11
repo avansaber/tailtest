@@ -1069,7 +1069,36 @@ def test_validator_disabled_flag_blocks_all_depths() -> None:
         )
 
 
-def test_extract_diff_text_edit_payload() -> None:
+def test_extract_diff_text_git_diff_preferred(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When git diff HEAD succeeds, it takes priority over payload fallback."""
+    import subprocess
+    fake_result = subprocess.CompletedProcess(
+        args=["git", "diff", "HEAD"],
+        returncode=0,
+        stdout="diff --git a/foo.py b/foo.py\n+new line\n",
+        stderr="",
+    )
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: fake_result)
+    payload = {
+        "tool_name": "Edit",
+        "tool_input": {"old_string": "old code", "new_string": "new code"},
+    }
+    diff = _extract_diff_text(payload)
+    assert "diff --git" in diff
+    assert "new line" in diff
+    assert "old code" not in diff  # payload fallback not used
+
+
+def test_extract_diff_text_edit_payload_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Falls back to payload when git diff returns empty."""
+    import subprocess
+    fake_result = subprocess.CompletedProcess(
+        args=["git", "diff", "HEAD"],
+        returncode=0,
+        stdout="",  # empty = no staged changes
+        stderr="",
+    )
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: fake_result)
     payload = {
         "tool_name": "Edit",
         "tool_input": {"old_string": "old code", "new_string": "new code"},
@@ -1079,7 +1108,9 @@ def test_extract_diff_text_edit_payload() -> None:
     assert "new code" in diff
 
 
-def test_extract_diff_text_write_payload() -> None:
+def test_extract_diff_text_write_payload_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Falls back to payload Write content when git not available."""
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: (_ for _ in ()).throw(OSError("no git")))
     payload = {
         "tool_name": "Write",
         "tool_input": {"content": "full file content here"},
@@ -1088,7 +1119,8 @@ def test_extract_diff_text_write_payload() -> None:
     assert "full file content here" in diff
 
 
-def test_extract_diff_text_unknown_tool_returns_empty() -> None:
+def test_extract_diff_text_unknown_tool_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: (_ for _ in ()).throw(OSError("no git")))
     payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}}
     assert _extract_diff_text(payload) == ""
 
