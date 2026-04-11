@@ -35,6 +35,7 @@ from tailtest.hook.post_tool_use import (
     _is_self_edit,
     _looks_like_test_file,
     _parse_stdin,
+    _should_invoke_redteam,
     _should_invoke_validator,
     _truncate,
     run,
@@ -1163,3 +1164,116 @@ def test_format_additional_context_no_validator_batch() -> None:
     envelope = json.loads(ctx_json)
     ctx = envelope["hookSpecificOutput"]["additionalContext"]
     assert "validator" not in ctx
+
+
+# --- Task 6.4: depth-mode gating for red-team ---------------------------
+
+
+def _agent_profile(tmp_path: Path) -> Path:
+    """Write a minimal profile that looks like an AI agent project."""
+    from tailtest.core.scan.profile import AISurface, ProjectProfile
+
+    profile = ProjectProfile(root=tmp_path, ai_surface=AISurface.AGENT)
+    profile_dir = tmp_path / ".tailtest"
+    profile_dir.mkdir(exist_ok=True)
+    (profile_dir / "profile.json").write_text(profile.to_json())
+    return tmp_path
+
+
+def _none_profile(tmp_path: Path) -> Path:
+    """Write a profile with ai_surface=none."""
+    from tailtest.core.scan.profile import AISurface, ProjectProfile
+
+    profile = ProjectProfile(root=tmp_path, ai_surface=AISurface.NONE)
+    profile_dir = tmp_path / ".tailtest"
+    profile_dir.mkdir(exist_ok=True)
+    (profile_dir / "profile.json").write_text(profile.to_json())
+    return tmp_path
+
+
+def _rt_cfg(depth: DepthMode, *, ai_checks_enabled: bool | None = None) -> Config:
+    return Config(depth=depth, ai_checks_enabled=ai_checks_enabled)
+
+
+def test_redteam_off_at_off_depth(tmp_path: Path) -> None:
+    root = _agent_profile(tmp_path)
+    assert not _should_invoke_redteam(_rt_cfg(DepthMode.OFF), root)
+
+
+def test_redteam_off_at_quick_depth(tmp_path: Path) -> None:
+    root = _agent_profile(tmp_path)
+    assert not _should_invoke_redteam(_rt_cfg(DepthMode.QUICK), root)
+
+
+def test_redteam_off_at_standard_depth(tmp_path: Path) -> None:
+    root = _agent_profile(tmp_path)
+    assert not _should_invoke_redteam(_rt_cfg(DepthMode.STANDARD), root)
+
+
+def test_redteam_off_at_thorough_depth(tmp_path: Path) -> None:
+    root = _agent_profile(tmp_path)
+    assert not _should_invoke_redteam(_rt_cfg(DepthMode.THOROUGH), root)
+
+
+def test_redteam_fires_at_paranoid_for_agent(tmp_path: Path) -> None:
+    root = _agent_profile(tmp_path)
+    assert _should_invoke_redteam(_rt_cfg(DepthMode.PARANOID), root)
+
+
+def test_redteam_off_for_non_agent_at_paranoid(tmp_path: Path) -> None:
+    root = _none_profile(tmp_path)
+    assert not _should_invoke_redteam(_rt_cfg(DepthMode.PARANOID), root)
+
+
+def test_redteam_off_when_ai_checks_explicitly_false(tmp_path: Path) -> None:
+    root = _agent_profile(tmp_path)
+    assert not _should_invoke_redteam(_rt_cfg(DepthMode.PARANOID, ai_checks_enabled=False), root)
+
+
+def test_redteam_fires_when_ai_checks_none(tmp_path: Path) -> None:
+    # ai_checks_enabled=None means "not explicitly disabled"
+    root = _agent_profile(tmp_path)
+    assert _should_invoke_redteam(_rt_cfg(DepthMode.PARANOID, ai_checks_enabled=None), root)
+
+
+def test_redteam_off_when_no_profile(tmp_path: Path) -> None:
+    # No .tailtest/profile.json -- load_profile returns None
+    assert not _should_invoke_redteam(_rt_cfg(DepthMode.PARANOID), tmp_path)
+
+
+def test_format_additional_context_includes_redteam_findings() -> None:
+    main_batch = FindingBatch(run_id="r1", depth="paranoid", summary_line="tailtest: 3/3 passed")
+    rt_finding = Finding.create(
+        kind=FindingKind.REDTEAM,
+        severity=Severity.HIGH,
+        file=Path("(agent entry point)"),
+        line=0,
+        message="[prompt_injection] Ignore-previous: agent lacks sanitization",
+        run_id="redteam",
+        rule_id="redteam/prompt_injection/pi_001",
+    )
+    rt_finding = rt_finding.model_copy(update={"reasoning": "No input validation present"})
+    rbatch = FindingBatch(
+        run_id="redteam",
+        depth="paranoid",
+        findings=[rt_finding],
+        summary_line="red-team: 1 vulnerability findings across 64 attacks (8 categories).",
+    )
+    ctx_json = _format_additional_context(
+        main_batch,
+        manifest_rescanned=False,
+        redteam_batch=rbatch,
+    )
+    envelope = json.loads(ctx_json)
+    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    assert "red-team" in ctx.lower()
+    assert "prompt_injection" in ctx
+    assert "No input validation present" in ctx
+
+
+def test_format_additional_context_no_redteam_batch() -> None:
+    batch = FindingBatch(run_id="r1", depth="standard", summary_line="tailtest: ok")
+    ctx_json = _format_additional_context(batch, manifest_rescanned=False)
+    envelope = json.loads(ctx_json)
+    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    assert "red-team" not in ctx
