@@ -1096,7 +1096,7 @@ async def _invoke_validator_tool(
         {
             "file_paths": file_path_strs,
             "diff": diff,
-            "timeout": 30,
+            "timeout": 120,  # claude -p startup ~15s + reasoning; allow 120s
         }
     )
     if result.get("isError"):
