@@ -53,7 +53,9 @@ After install, Claude Code knows the following user-invocable skills:
 | `/tailtest:gen` | Generate a starter test for an uncovered function |
 | `/tailtest:depth` | Change the hot loop depth (`off`/`quick`/`standard`/`thorough`/`paranoid`) |
 | `/tailtest:setup` | Onboarding interview that writes `.tailtest/config.yaml` |
+| `/tailtest:memory` | View or clear the validator memory file (`.tailtest/memory/validator.md`) |
 | `/tailtest:help` | Lists all skills with descriptions and links to docs |
+| `/tailtest` | Show active project recommendations; dismiss or accept with an ID |
 
 ## Configuration
 
@@ -96,14 +98,11 @@ Phase 1 configs (with `sast: true/false` as plain bools) keep parsing — the lo
 
 ## What tailtest does NOT do (yet)
 
-Honest expectations for alpha.2:
+Current limitations in v0.1.1:
 
-- No live web dashboard. The HTML report is static, on-disk. Phase 4 ships the live server.
-- No Rust runner. Phase 4.5. Cargo support is on the roadmap.
-- No `node --test` (Node's built-in test runner), no ava, no mocha, no tape. Phase 4.5 batch ships these alongside the Rust runner. JS/TS users on alpha.2 need vitest or jest.
-- No multi-language SCA beyond Python + JS. Go / Rust / Java come later.
-- No EPSS / KEV / NVD severity enrichment for SCA findings. Phase 6 polish.
-- No SCA discovery for projects without a `pyproject.toml` or `package.json`. Phase 3 design question; we know about it.
+- No multi-language SCA beyond Python + JS. Go / Rust / Java on the roadmap.
+- No EPSS / KEV / NVD severity enrichment for SCA findings.
+- No SCA discovery for projects without a `pyproject.toml` or `package.json`.
 
 ## Repository layout
 
