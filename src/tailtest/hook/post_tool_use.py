@@ -420,6 +420,16 @@ async def run(
         except Exception as exc:  # noqa: BLE001
             logger.warning("validator invocation failed: %s", exc)
 
+    # Red-team runner (Phase 6 Task 6.4). Fires only at paranoid depth on
+    # ai_surface:agent projects with ai_checks_enabled. Always runs after
+    # the validator so both coexist in the same paranoid turn.
+    redteam_batch: FindingBatch | None = None
+    if _should_invoke_redteam(config, root):
+        try:
+            redteam_batch = await _invoke_redteam_runner(root, config)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("red-team invocation failed: %s", exc)
+
     stdout_json = _format_additional_context(
         batch,
         manifest_rescanned=manifest_rescanned,
@@ -429,6 +439,7 @@ async def run(
         ai_checks_note=ai_checks_note,
         llm_judge_lines=llm_judge_lines,
         validator_batch=validator_batch,
+        redteam_batch=redteam_batch,
     )
     return HookResult(stdout_json=stdout_json, reason="ok")
 
@@ -936,6 +947,7 @@ def _format_additional_context(
     ai_checks_note: str | None = None,
     llm_judge_lines: list[str] | None = None,
     validator_batch: FindingBatch | None = None,
+    redteam_batch: FindingBatch | None = None,
 ) -> str:
     """Build the hookSpecificOutput JSON payload for Claude's next turn.
 
@@ -1029,6 +1041,15 @@ def _format_additional_context(
             if vf.reasoning:
                 lines.append(f"    reasoning: {vf.reasoning[:150]}")
 
+    # Red-team findings (Phase 6 Task 6.4): appended last at paranoid depth.
+    if redteam_batch is not None and redteam_batch.findings:
+        lines.append("")
+        lines.append(f"red-team: {redteam_batch.summary_line}")
+        for rf in redteam_batch.findings[:3]:
+            lines.append(f"  [{rf.severity.value}] {rf.message}")
+            if rf.reasoning:
+                lines.append(f"    reasoning: {rf.reasoning[:150]}")
+
     additional_context = "\n".join(lines)
     additional_context = _truncate(additional_context)
 
@@ -1057,6 +1078,51 @@ def _should_invoke_validator(config: Config, batch: FindingBatch) -> bool:
     if config.depth == DepthMode.THOROUGH:
         return batch.tests_failed == 0
     return False
+
+
+def _should_invoke_redteam(config: Config, project_root: Path) -> bool:
+    """Return True if the red-team runner should fire this turn.
+
+    Rules (Task 6.4):
+    - off / quick / standard / thorough: never
+    - paranoid + ai_surface:agent + ai_checks_enabled not False: yes
+    - Any other paranoid project: no
+
+    Loads the cached project profile to check ai_surface. All errors
+    silently return False so the hook never crashes here.
+    """
+    if config.depth != DepthMode.PARANOID:
+        return False
+    if config.ai_checks_enabled is False:
+        return False
+    try:
+        scanner = ProjectScanner(project_root)
+        profile = scanner.load_profile()
+        if profile is None:
+            return False
+        return profile.ai_surface == AISurface.AGENT
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("red-team gate check failed: %s", exc)
+        return False
+
+
+async def _invoke_redteam_runner(project_root: Path, config: Config) -> FindingBatch | None:
+    """Instantiate RedTeamRunner and run the 64-attack catalog.
+
+    Returns the FindingBatch (rate-limited to 5 findings) or None on
+    error. The full HTML report is written to
+    ``.tailtest/reports/redteam-<timestamp>.html`` by the runner.
+    """
+    from tailtest.core.scan.profile import ProjectProfile
+    from tailtest.security.redteam.runner import RedTeamRunner
+
+    scanner = ProjectScanner(project_root)
+    profile = scanner.load_profile()
+    if profile is None:
+        profile = ProjectProfile(root=project_root)
+
+    runner = RedTeamRunner()
+    return await runner.run(profile, config, project_root)
 
 
 def _extract_diff_text(payload: dict) -> str:
