@@ -95,6 +95,7 @@ _IMMEDIATE_BASELINE_KINDS: frozenset[FindingKind] = frozenset(
         FindingKind.AI_SURFACE,
         FindingKind.LINT,
         FindingKind.COVERAGE_GAP,
+        FindingKind.REDTEAM,  # Phase 6: red-team findings baseline on first detection
     }
 )
 
@@ -252,6 +253,14 @@ class BaselineManager:
         baseline = self.load()
         return batch.with_baseline_applied(baseline.ids)
 
+    def list_redteam_entries(self) -> list[BaselineEntry]:
+        """Return all baselined red-team findings, sorted by first_seen."""
+        baseline = self.load()
+        return sorted(
+            [e for e in baseline.entries.values() if e.kind == FindingKind.REDTEAM.value],
+            key=lambda e: e.first_seen,
+        )
+
     def update_from(self, batch: FindingBatch) -> BaselineFile:
         """Update the baseline file based on a finished run.
 
@@ -300,8 +309,8 @@ class BaselineManager:
                 # PostToolUse hook will add)
                 seen_failing_test_ids.add(finding.id)
 
-            # Validator and redteam findings are never auto-baselined in Phase 1
-            # (they're managed by their own phases' workflows).
+            # Validator findings are never auto-baselined (managed by Phase 5 workflow).
+            # REDTEAM findings are handled by _IMMEDIATE_BASELINE_KINDS above.
 
         # Decrement streaks for test failures not seen this run (flaky tests recovering)
         for entry in list(baseline.entries.values()):

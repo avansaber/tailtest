@@ -427,6 +427,11 @@ async def run(
     if _should_invoke_redteam(config, root):
         try:
             redteam_batch = await _invoke_redteam_runner(root, config)
+            if redteam_batch is not None:
+                # Baseline pass (Task 6.6): apply+update using the same manager
+                # that handled the test/security findings earlier in this run.
+                redteam_batch = manager.apply_to(redteam_batch)
+                manager.update_from(redteam_batch)
         except Exception as exc:  # noqa: BLE001
             logger.warning("red-team invocation failed: %s", exc)
 
