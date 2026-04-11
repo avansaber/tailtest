@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 7 pre-release polish)
+- **Plugin self-contained install.** `hooks/_bootstrap.py` now tries the plugin's own `src/` directory before falling back to the PATH-based re-exec. `pip install tailtester` is no longer required for the hot loop -- `claude plugin install` alone is sufficient. `pip` remains useful for the standalone CLI (`tailtest run / doctor / scan`).
+- **`/tailtest:help` skill.** Lists all 11 skills with one-line descriptions and links to install, quickstart, and configuration docs.
+- **Self-installable marketplace manifest** (`marketplace.json` version bumped to rc.2). `claude plugin marketplace add avansaber/tailtest && claude plugin install tailtest@avansaber` works from any machine without waiting for the official marketplace listing.
+- **Full documentation suite** at `docs/`. New files: `index.md` (navigation landing), `depth-modes.md` (all 5 depth modes with cost/latency callouts), `findings-catalog.md` (all 9 finding kinds), `faq.md` (10 common questions), `privacy.md` (zero telemetry confirmed, 2 legitimate outbound calls documented).
+
 ## [0.1.0-rc.2] - 2026-04-11
 
 ### Added

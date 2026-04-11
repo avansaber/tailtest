@@ -92,7 +92,7 @@ def test_plugin_manifest_valid_json() -> None:
     manifest = json.loads(manifest_path.read_text())
 
     assert manifest["name"] == "tailtest"
-    assert manifest["version"] == "0.1.0-alpha.2"
+    assert manifest["version"] == "0.1.0-rc.2"
     assert "description" in manifest
     assert manifest["license"] == "Apache-2.0"
 
