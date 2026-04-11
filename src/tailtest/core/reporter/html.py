@@ -348,6 +348,11 @@ class HTMLReporter:
         parts.append(f'      <p class="message">{message}</p>')
         if claude_hint:
             parts.append(f'      <p class="hint">hint: {claude_hint}</p>')
+        if finding.kind == FindingKind.VALIDATOR and finding.reasoning:
+            reasoning = html.escape(finding.reasoning[:300])
+            conf = html.escape(finding.confidence or "")
+            conf_badge = f' <span class="conf-badge">{conf}</span>' if conf else ""
+            parts.append(f'      <p class="reasoning">reasoning{conf_badge}: {reasoning}</p>')
         if extra_meta:
             parts.append(
                 '      <p class="extra">'

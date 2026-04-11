@@ -275,6 +275,11 @@ class TerminalReporter:
         if finding.fix_suggestion:
             lines.append(f"      {c.green}fix: {finding.fix_suggestion}{c.reset}")
 
+        # Optional: validator reasoning + confidence (kind=validator only)
+        if finding.kind.value == "validator" and finding.reasoning:
+            conf = f" [{finding.confidence}]" if finding.confidence else ""
+            lines.append(f"      {c.dim}reasoning{conf}: {finding.reasoning[:200]}{c.reset}")
+
         # Optional: rule_id + doc_link
         footer_parts = []
         if finding.rule_id:
