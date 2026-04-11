@@ -321,12 +321,17 @@ class RedTeamRunner:
             return ""
 
         # Read up to _MAX_CODE_CHARS across candidates
+        project_root_abs = project_root.resolve()
         parts: list[str] = []
         remaining = _MAX_CODE_CHARS
         for candidate in candidates[:3]:  # at most 3 files
             try:
                 text = candidate.read_text(errors="replace")
-                parts.append(f"# File: {candidate.relative_to(project_root)}\n{text}")
+                try:
+                    rel = candidate.resolve().relative_to(project_root_abs)
+                except ValueError:
+                    rel = candidate
+                parts.append(f"# File: {rel}\n{text}")
                 remaining -= len(text)
                 if remaining <= 0:
                     break
