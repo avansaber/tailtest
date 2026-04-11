@@ -448,7 +448,7 @@ _REPORT_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
   <h1>tailtest red-team report</h1>
-  <div class="meta">Generated: {{TIMESTAMP}} &mdash; {{COUNT}} findings</div>
+  <div class="meta">Generated: {{TIMESTAMP}} &mdash; {{COUNT}} findings &mdash; <a href="https://github.com/avansaber/tailtest/blob/main/docs/redteam-disclosure.md" rel="noopener nofollow">disclosure policy</a></div>
   <table>
     <thead>
       <tr>
