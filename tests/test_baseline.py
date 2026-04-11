@@ -147,15 +147,22 @@ def test_update_from_does_not_immediately_baseline_test_failures(tmp_path: Path)
     assert f.id not in result.ids
 
 
-def test_update_from_never_baselines_validator_or_redteam(tmp_path: Path) -> None:
-    """Validator and red-team findings are managed by their own phases."""
+def test_update_from_never_baselines_validator(tmp_path: Path) -> None:
+    """Validator findings are not auto-baselined (managed by Phase 5 workflow)."""
     mgr = BaselineManager(tmp_path / ".tailtest")
-    f1 = _make_finding(FindingKind.VALIDATOR, line=10)
-    f2 = _make_finding(FindingKind.REDTEAM, line=20)
-    batch = FindingBatch(run_id="r1", depth="paranoid", findings=[f1, f2])
+    f = _make_finding(FindingKind.VALIDATOR, line=10)
+    batch = FindingBatch(run_id="r1", depth="paranoid", findings=[f])
     result = mgr.update_from(batch)
-    assert f1.id not in result.ids
-    assert f2.id not in result.ids
+    assert f.id not in result.ids
+
+
+def test_update_from_immediately_baselines_redteam(tmp_path: Path) -> None:
+    """Red-team findings baseline on first detection (Task 6.6)."""
+    mgr = BaselineManager(tmp_path / ".tailtest")
+    f = _make_finding(FindingKind.REDTEAM, line=20)
+    batch = FindingBatch(run_id="r1", depth="paranoid", findings=[f])
+    result = mgr.update_from(batch)
+    assert f.id in result.ids
 
 
 def test_update_from_decrements_streak_for_recovered_tests(tmp_path: Path) -> None:
@@ -288,3 +295,87 @@ def test_baseline_yaml_with_header_still_parses(tmp_path: Path) -> None:
     restored = mgr.load()
     assert restored.ids == original.ids
     assert restored.entries[f.id].kind == FindingKind.SAST.value
+
+
+# --- Task 6.6: red-team baseline behavior ------------------------------------
+
+
+def _redteam_finding(attack_id: str = "pi_001", category: str = "prompt_injection") -> Finding:
+    return Finding.create(
+        kind=FindingKind.REDTEAM,
+        severity=Severity.HIGH,
+        file=Path("(agent entry point)"),
+        line=0,
+        message=f"[{category}] attack description",
+        run_id="redteam",
+        rule_id=f"redteam/{category}/{attack_id}",
+    )
+
+
+def test_redteam_baseline_first_run_baselines_findings(tmp_path: Path) -> None:
+    """First paranoid run: 3 redteam findings get baselined immediately."""
+    mgr = BaselineManager(tmp_path / ".tailtest")
+    f1 = _redteam_finding("pi_001", "prompt_injection")
+    f2 = _redteam_finding("jb_001", "jailbreak")
+    f3 = _redteam_finding("pii_001", "pii_extraction")
+    batch = FindingBatch(run_id="redteam", depth="paranoid", findings=[f1, f2, f3])
+    result = mgr.update_from(batch)
+    assert {f1.id, f2.id, f3.id} <= result.ids
+
+
+def test_redteam_baseline_second_run_surfaces_zero(tmp_path: Path) -> None:
+    """Second paranoid run with same findings: all suppressed (in_baseline=True)."""
+    mgr = BaselineManager(tmp_path / ".tailtest")
+    f1 = _redteam_finding("pi_001")
+    f2 = _redteam_finding("jb_001", "jailbreak")
+    batch = FindingBatch(run_id="redteam", depth="paranoid", findings=[f1, f2])
+    mgr.update_from(batch)
+
+    # Second run: same findings
+    batch2 = FindingBatch(run_id="redteam", depth="paranoid", findings=[f1, f2])
+    batch2_after = mgr.apply_to(batch2)
+    new = [f for f in batch2_after.findings if not f.in_baseline]
+    assert new == []
+
+
+def test_redteam_baseline_new_vuln_surfaces_one(tmp_path: Path) -> None:
+    """First run baselines 2; second run introduces 1 new finding: surfaces exactly 1."""
+    mgr = BaselineManager(tmp_path / ".tailtest")
+    f1 = _redteam_finding("pi_001")
+    f2 = _redteam_finding("jb_001", "jailbreak")
+    batch = FindingBatch(run_id="redteam", depth="paranoid", findings=[f1, f2])
+    mgr.update_from(batch)
+
+    # Second run: same 2 + 1 new
+    f_new = _redteam_finding("pii_001", "pii_extraction")
+    batch2 = FindingBatch(run_id="redteam", depth="paranoid", findings=[f1, f2, f_new])
+    batch2_after = mgr.apply_to(batch2)
+    new = [f for f in batch2_after.findings if not f.in_baseline]
+    assert len(new) == 1
+    assert new[0].rule_id == "redteam/pii_extraction/pii_001"
+
+
+def test_redteam_finding_id_stable_across_runs() -> None:
+    """Same attack ID + category produces the same Finding.id every time."""
+    f1 = _redteam_finding("pi_001", "prompt_injection")
+    f2 = _redteam_finding("pi_001", "prompt_injection")
+    assert f1.id == f2.id
+
+
+def test_list_redteam_entries_returns_only_redteam(tmp_path: Path) -> None:
+    """list_redteam_entries filters to kind=redteam only."""
+    mgr = BaselineManager(tmp_path / ".tailtest")
+    rt = _redteam_finding("pi_001")
+    sast = _make_finding(FindingKind.SAST, line=5, message="sast finding")
+    batch = FindingBatch(run_id="r1", depth="paranoid", findings=[rt, sast])
+    mgr.update_from(batch)
+
+    entries = mgr.list_redteam_entries()
+    assert len(entries) == 1
+    assert entries[0].kind == FindingKind.REDTEAM.value
+
+
+def test_list_redteam_entries_empty_when_none_baselined(tmp_path: Path) -> None:
+    mgr = BaselineManager(tmp_path / ".tailtest")
+    entries = mgr.list_redteam_entries()
+    assert entries == []
