@@ -165,6 +165,58 @@ Then confirm to the user: "AI checks dismissed. tailtest will not ask again. You
 
 ---
 
+## /tailtest disable-validator -- turn off the Jiminy Cricket validator subagent
+
+When the user runs `/tailtest disable-validator`:
+
+1. Tell the user: "The validator adds an LLM reasoning pass to every edit at thorough and paranoid depths. Disabling it keeps validation fully deterministic and avoids the extra latency. You can re-enable it at any time with `/tailtest enable-validator`."
+2. Ask for confirmation: "Disable the validator? (yes/no)"
+3. If the user says yes, run:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, 'src')
+from tailtest.core.config.loader import ConfigLoader
+from pathlib import Path
+loader = ConfigLoader(Path('.') / '.tailtest')
+config = loader.load()
+config.validator_enabled = False
+loader.save(config)
+print('validator-disabled')
+"
+```
+
+Then confirm: "Validator disabled. tailtest will run deterministic checks only (tests, lint, security). Re-enable with `/tailtest enable-validator`."
+
+4. Offer to preserve the memory file: "The validator memory at `.tailtest/memory/validator.md` contains notes from past sessions. Keep it? (yes to keep / no to archive it)"
+   - If no: append a dated note to `.tailtest/memory/validator-archive-<date>.md` and clear the active file. Tell the user where the archive is.
+   - If yes: leave the memory file untouched.
+
+---
+
+## /tailtest enable-validator -- turn on the Jiminy Cricket validator subagent
+
+When the user runs `/tailtest enable-validator`, run:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, 'src')
+from tailtest.core.config.loader import ConfigLoader
+from pathlib import Path
+loader = ConfigLoader(Path('.') / '.tailtest')
+config = loader.load()
+config.validator_enabled = True
+loader.save(config)
+print('validator-enabled')
+"
+```
+
+Then confirm: "Validator enabled. It will fire at thorough and paranoid depths after the cheap path (tests + lint + security) completes green. Set depth with `/tailtest:depth thorough`."
+
+---
+
 ## What not to do
 
 - Do not run `pip install`, `npm install`, or any package-manager install command on the user's behalf. The `install_tool` flow always gives the user a command to copy; tailtest never silently installs tools.
@@ -180,3 +232,4 @@ Then confirm to the user: "AI checks dismissed. tailtest will not ask again. You
 - `/tailtest:status` -- compact one-line project status
 - `/tailtest:debt` -- review baselined (accepted) findings
 - `/tailtest:security` -- security scanner posture
+- `/tailtest:memory` -- view or clear the validator memory file

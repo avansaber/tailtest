@@ -34,6 +34,8 @@ EXPECTED_SKILLS = {
     "security",
     # Phase 3 Task 3.4 added the recommendations UX skill.
     "tailtest",
+    # Phase 5 Task 5.7 added the validator memory viewer skill.
+    "memory",
 }
 
 # Skills that take a positional argument via $ARGUMENTS and therefore
