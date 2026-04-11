@@ -4,7 +4,7 @@
 
 tailtest watches every edit your AI agent makes inside Claude Code, runs the tests that matter, scans for security issues that matter, and feeds findings back into Claude's next turn so the agent can fix them in the same session. The hot loop never blocks your work.
 
-**Current release:** [`v0.1.0-alpha.2`](https://github.com/avansaber/tailtest/releases/tag/v0.1.0-alpha.2) — Phase 2 (security layer) shipped. The brand promise is real: tests + secrets + SAST + SCA flow through the same Claude Code hot loop today. See [CHANGELOG.md](CHANGELOG.md) for the full release notes.
+**Current release:** [v0.1.1](https://github.com/avansaber/tailtest/releases/tag/v0.1.1) — Phase 7 (launch) shipped. Tests + 4 security scanners (secrets, SAST, SCA, AI red team) in the Claude Code hot loop.
 
 ## Quickstart (5 minutes)
 
@@ -26,7 +26,7 @@ After the first edit, look for `tailtest: N/N tests passed · M.Ms` in Claude's 
 
 For the full walkthrough including troubleshooting, see [`docs/quickstart.md`](docs/quickstart.md). For install gotchas (PEP 668, v1 upgrade, hook Python resolution), see [`docs/install.md`](docs/install.md). For the full config schema, see [`docs/configuration.md`](docs/configuration.md).
 
-## What tailtest does today (alpha.2)
+## What tailtest does today
 
 - **Runs your tests on every edit**, using the project's native runner (pytest for Python; vitest or jest for JS/TS) with native test impact analysis so only the affected tests run.
 - **Scans for secrets** via gitleaks on every changed file. CWE-798 (hardcoded credentials) tagged automatically.
@@ -36,6 +36,7 @@ For the full walkthrough including troubleshooting, see [`docs/quickstart.md`](d
 - **Suggests test generation** for pure functions you just added that have no test, so you can run `/tailtest:gen <file>` and let Claude write a starter test for you.
 - **Filters known issues via a baseline** at `.tailtest/baseline.yaml`. Existing debt stays silent; only NEW issues surface.
 - **Renders a self-contained HTML report** at `.tailtest/reports/latest.html` after every run. No JavaScript, no CDN, opens offline.
+- **Red-teams AI agent entry points** at `paranoid` depth via a 64-attack catalog covering the OWASP LLM Top 10. Each attack is judged by `claude -p`; findings land in a timestamped HTML report at `.tailtest/reports/redteam-*.html`.
 - **Never blocks your work.** tailtest reports; you decide.
 
 ## Slash commands
@@ -52,6 +53,7 @@ After install, Claude Code knows the following user-invocable skills:
 | `/tailtest:gen` | Generate a starter test for an uncovered function |
 | `/tailtest:depth` | Change the hot loop depth (`off`/`quick`/`standard`/`thorough`/`paranoid`) |
 | `/tailtest:setup` | Onboarding interview that writes `.tailtest/config.yaml` |
+| `/tailtest:help` | Lists all skills with descriptions and links to docs |
 
 ## Configuration
 
@@ -97,8 +99,6 @@ Phase 1 configs (with `sast: true/false` as plain bools) keep parsing — the lo
 Honest expectations for alpha.2:
 
 - No live web dashboard. The HTML report is static, on-disk. Phase 4 ships the live server.
-- No validator subagent that critiques Claude's code. Phase 5.
-- No AI-agent red team. Phase 6.
 - No Rust runner. Phase 4.5. Cargo support is on the roadmap.
 - No `node --test` (Node's built-in test runner), no ava, no mocha, no tape. Phase 4.5 batch ships these alongside the Rust runner. JS/TS users on alpha.2 need vitest or jest.
 - No multi-language SCA beyond Python + JS. Go / Rust / Java come later.
@@ -114,7 +114,7 @@ tailtest/
 ├── hooks/                       PostToolUse / SessionStart hook shims
 ├── skills/                      User-invocable slash commands
 ├── src/tailtest/                Python package source
-├── tests/                       Pytest suite (608 tests at alpha.2)
+├── tests/                       Pytest suite (1092 tests)
 ├── pyproject.toml
 ├── README.md                    This file
 ├── LICENSE                      Apache 2.0
@@ -124,7 +124,7 @@ tailtest/
 
 ## Contributing
 
-The project is in active development through Phase 7 (launch). The public release target is `v0.1.0`. Until then, the issue tracker on [github.com/avansaber/tailtest](https://github.com/avansaber/tailtest) is open for bug reports and feature requests. PRs are reviewed but the bar for accepting external code is high while the architecture is still moving.
+The project is in active development through Phase 7 (launch). The current release is `v0.1.1`. The issue tracker on [github.com/avansaber/tailtest](https://github.com/avansaber/tailtest) is open for bug reports and feature requests. PRs are reviewed but the bar for accepting external code is high while the architecture is still moving.
 
 ## License
 
