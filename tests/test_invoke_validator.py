@@ -28,7 +28,6 @@ from tailtest.mcp.tools.invoke_validator import (
     _to_findings,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -246,11 +245,13 @@ def test_maybe_archive_memory_no_op_when_small(tmp_path: Path) -> None:
 async def test_invoke_validator_normal_findings(tool: InvokeValidatorTool) -> None:
     raw = _findings_json("high", "medium")
     proc = _fake_proc(raw)
-    with patch("asyncio.create_subprocess_exec", return_value=proc):
-        with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(raw.encode(), b"")):
-            result = await tool.invoke(
-                {"file_paths": ["src/foo.py"], "diff": "+new line\n", "timeout": 10}
-            )
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=proc),
+        patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(raw.encode(), b"")),
+    ):
+        result = await tool.invoke(
+            {"file_paths": ["src/foo.py"], "diff": "+new line\n", "timeout": 10}
+        )
     assert not result["isError"]
     batch = json.loads(result["content"][0]["text"])
     assert batch["tests_failed"] > 0
@@ -260,9 +261,11 @@ async def test_invoke_validator_normal_findings(tool: InvokeValidatorTool) -> No
 @pytest.mark.asyncio
 async def test_invoke_validator_empty_findings(tool: InvokeValidatorTool) -> None:
     proc = _fake_proc("[]")
-    with patch("asyncio.create_subprocess_exec", return_value=proc):
-        with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(b"[]", b"")):
-            result = await tool.invoke({"file_paths": [], "diff": "", "timeout": 10})
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=proc),
+        patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(b"[]", b"")),
+    ):
+        result = await tool.invoke({"file_paths": [], "diff": "", "timeout": 10})
     assert not result["isError"]
     batch = json.loads(result["content"][0]["text"])
     assert batch["findings"] == []
@@ -271,13 +274,14 @@ async def test_invoke_validator_empty_findings(tool: InvokeValidatorTool) -> Non
 
 @pytest.mark.asyncio
 async def test_invoke_validator_timeout(tool: InvokeValidatorTool) -> None:
-    import asyncio as aio
 
     proc = _fake_proc("")
-    proc.communicate = AsyncMock(side_effect=aio.TimeoutError())
-    with patch("asyncio.create_subprocess_exec", return_value=proc):
-        with patch("asyncio.wait_for", side_effect=aio.TimeoutError()):
-            result = await tool.invoke({"timeout": 1})
+    proc.communicate = AsyncMock(side_effect=TimeoutError())
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=proc),
+        patch("asyncio.wait_for", side_effect=TimeoutError()),
+    ):
+        result = await tool.invoke({"timeout": 1})
     assert not result["isError"]
     batch = json.loads(result["content"][0]["text"])
     assert "timed out" in batch["summary_line"]
@@ -306,9 +310,11 @@ async def test_invoke_validator_defensive_layer_blocks_diff_output(
 ) -> None:
     # Validator output that looks like a code-modification attempt.
     suspicious = "--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@ bad output"
-    with patch("asyncio.create_subprocess_exec", return_value=_fake_proc(suspicious)):
-        with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(suspicious.encode(), b"")):
-            result = await tool.invoke({"diff": "+x\n", "timeout": 5})
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=_fake_proc(suspicious)),
+        patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(suspicious.encode(), b"")),
+    ):
+        result = await tool.invoke({"diff": "+x\n", "timeout": 5})
     assert not result["isError"]
     batch = json.loads(result["content"][0]["text"])
     assert batch["findings"] == []
@@ -328,9 +334,11 @@ async def test_invoke_validator_appends_memory(
 ) -> None:
     note = "2026-04-10 Validated a refactor. No issues found."
     raw = f"[]\n<!-- validator-memory-append -->\n{note}"
-    with patch("asyncio.create_subprocess_exec", return_value=_fake_proc(raw)):
-        with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(raw.encode(), b"")):
-            await tool.invoke({"timeout": 5})
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=_fake_proc(raw)),
+        patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(raw.encode(), b"")),
+    ):
+        await tool.invoke({"timeout": 5})
     memory_path = project_root / ".tailtest" / "memory" / "validator.md"
     assert memory_path.exists()
     assert "2026-04-10" in memory_path.read_text()
@@ -351,10 +359,12 @@ async def test_subprocess_cmd_includes_allowed_tools(tool: InvokeValidatorTool) 
         proc = _fake_proc("[]")
         return proc
 
-    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
-        with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(b"[]", b"")):
-            with patch("shutil.which", return_value="/usr/bin/claude"):
-                await tool.invoke({"diff": "+x", "timeout": 5})
+    with (
+        patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+        patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(b"[]", b"")),
+        patch("shutil.which", return_value="/usr/bin/claude"),
+    ):
+        await tool.invoke({"diff": "+x", "timeout": 5})
 
     cmd_str = " ".join(captured_cmd)
     assert "--allowedTools" in cmd_str
@@ -376,10 +386,12 @@ async def test_subprocess_cmd_includes_no_session_persistence(tool: InvokeValida
         captured_cmd.extend(args)
         return _fake_proc("[]")
 
-    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
-        with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(b"[]", b"")):
-            with patch("shutil.which", return_value="/usr/bin/claude"):
-                await tool.invoke({"timeout": 5})
+    with (
+        patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+        patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(b"[]", b"")),
+        patch("shutil.which", return_value="/usr/bin/claude"),
+    ):
+        await tool.invoke({"timeout": 5})
 
     assert "--no-session-persistence" in captured_cmd
 
@@ -388,9 +400,11 @@ async def test_subprocess_cmd_includes_no_session_persistence(tool: InvokeValida
 async def test_defensive_layer_blocks_file_write_markers(tool: InvokeValidatorTool) -> None:
     """Defensive parser blocks output containing <write_file> tags."""
     rogue = '[{"severity": "info", "file": "x.py", "line": 1, "message": "ok"}]<write_file>path</write_file>'
-    with patch("asyncio.create_subprocess_exec", return_value=_fake_proc(rogue)):
-        with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(rogue.encode(), b"")):
-            result = await tool.invoke({"timeout": 5})
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=_fake_proc(rogue)),
+        patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(rogue.encode(), b"")),
+    ):
+        result = await tool.invoke({"timeout": 5})
     batch = json.loads(result["content"][0]["text"])
     assert batch["findings"] == []
 
