@@ -10,7 +10,7 @@ from tailtest.mcp.server import TailtestMCPServer
 
 
 @pytest.mark.asyncio
-async def test_tools_list_returns_six_tools() -> None:
+async def test_tools_list_returns_seven_tools() -> None:
     server = TailtestMCPServer()
     raw = '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
     response = await server.handle_message(raw)
@@ -18,7 +18,7 @@ async def test_tools_list_returns_six_tools() -> None:
     data = json.loads(response)
     assert "result" in data
     tools = data["result"]["tools"]
-    assert len(tools) == 6
+    assert len(tools) == 7
     names = {t["name"] for t in tools}
     assert names == {
         "scan_project",
@@ -27,6 +27,7 @@ async def test_tools_list_returns_six_tools() -> None:
         "generate_tests",
         "get_baseline",
         "tailtest_status",
+        "invoke_validator",
     }
 
 

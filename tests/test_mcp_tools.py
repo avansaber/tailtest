@@ -28,8 +28,8 @@ FIXTURE_SCANNER_PLAIN = FIXTURES / "scanner_plain"
 # --- Registration + contract tests --------------------------------------
 
 
-def test_all_tools_has_six_entries() -> None:
-    assert len(ALL_TOOLS) == 6
+def test_all_tools_has_seven_entries() -> None:
+    assert len(ALL_TOOLS) == 7
     names = {cls.name for cls in ALL_TOOLS}
     assert names == {
         "scan_project",
@@ -38,6 +38,7 @@ def test_all_tools_has_six_entries() -> None:
         "generate_tests",
         "get_baseline",
         "tailtest_status",
+        "invoke_validator",
     }
 
 
