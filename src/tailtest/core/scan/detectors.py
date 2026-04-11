@@ -26,6 +26,7 @@ from tailtest.core.scan.profile import (
     DetectedPlanFile,
     DetectedRunner,
     DirectoryClassification,
+    EntryPoint,
     InfrastructureKind,
     PlanFileKind,
 )
@@ -938,3 +939,239 @@ def compute_content_hash(root: Path) -> str:
                 h.update(path.read_bytes())
         h.update(b"\x01")
     return h.hexdigest()[:16]
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 Task 6.3 -- agent entry-point detection
+# ---------------------------------------------------------------------------
+
+# Python patterns (text-based, no AST to keep the scanner fast and dependency-free)
+_PY_ENTRY_PATTERNS: list[tuple[re.Pattern[str], str, str | None]] = [
+    # @agent_test decorator immediately before a function
+    (re.compile(r"@agent_test\s+def\s+(\w+)\s*\("), "high", None),
+    # top-level main() in a file under agents/
+    (re.compile(r"^def\s+(main)\s*\(", re.MULTILINE), "medium", None),
+    # invoke() method on a class
+    (re.compile(r"def\s+(invoke)\s*\(\s*self"), "medium", None),
+    # run_agent() or run() at top level
+    (re.compile(r"^def\s+(run(?:_agent)?)\s*\(", re.MULTILINE), "low", None),
+]
+# Anthropic/OpenAI client construction anywhere in the file
+_PY_CLIENT_PATTERN = re.compile(
+    r"(?:Anthropic|AsyncAnthropic|OpenAI|AsyncOpenAI)\s*\(", re.MULTILINE
+)
+
+# TypeScript/JavaScript patterns
+_TS_ENTRY_PATTERNS: list[tuple[re.Pattern[str], str, str | None]] = [
+    # export default function ...
+    (re.compile(r"export\s+default\s+(?:async\s+)?function\s+(\w+)"), "high", None),
+    # Vercel AI SDK: streamText / generateText
+    (re.compile(r"(?:streamText|generateText|createAI)\s*\("), "high", "vercel-ai-sdk"),
+    # UserMessage or string → Promise<...>
+    (re.compile(r"async\s+function\s+(\w+)\s*\(\s*\w+\s*:\s*(?:string|UserMessage)"), "medium", None),
+    # export async function named run/invoke/handle
+    (re.compile(r"export\s+(?:async\s+)?function\s+(run|invoke|handle)\s*\("), "medium", None),
+]
+
+# Rust patterns
+_RS_ENTRY_PATTERNS: list[tuple[re.Pattern[str], str, str | None]] = [
+    # async fn that uses async_openai or anthropic crate
+    (re.compile(r"pub\s+async\s+fn\s+(\w+)\s*\("), "high", None),
+    (re.compile(r"async\s+fn\s+(main|run|invoke|handle)\s*\("), "medium", None),
+]
+_RS_CLIENT_PATTERN = re.compile(r"async_openai|anthropic_sdk|anthropic::", re.MULTILINE)
+
+_IGNORED_FOR_EP = frozenset({"node_modules", ".git", "__pycache__", "target", ".tailtest"})
+
+
+def detect_entry_points(
+    root: Path,
+    files: list[Path],
+    primary_language: str | None,
+    *,
+    config_path: Path | None = None,
+) -> list[EntryPoint]:
+    """Detect agent entry points in the project.
+
+    Config-declared entry points (from ``.tailtest/config.yaml`` or
+    ``config_path``) take precedence over auto-detected ones.
+
+    Args:
+        root: Project root directory.
+        files: Pre-walked file list from the scanner.
+        primary_language: Primary language string from the scanner (e.g. "python").
+        config_path: Path to the tailtest config YAML. Defaults to
+            ``<root>/.tailtest/config.yaml``.
+
+    Returns:
+        A list of ``EntryPoint`` objects, deduplicated by (file, function).
+    """
+    cfg = config_path or root / ".tailtest" / "config.yaml"
+    declared = _load_declared_entry_points(cfg, root)
+    if declared:
+        return declared
+
+    return _auto_detect_entry_points(root, files, primary_language)
+
+
+def _load_declared_entry_points(config_path: Path, root: Path) -> list[EntryPoint]:
+    """Load entry points from .tailtest/config.yaml agent.entry_points section."""
+    if not config_path.exists():
+        return []
+    try:
+        import yaml  # type: ignore[import-untyped]
+
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    declared = (raw or {}).get("agent", {}).get("entry_points", [])
+    if not declared:
+        return []
+
+    results: list[EntryPoint] = []
+    for ep in declared:
+        if not isinstance(ep, dict):
+            continue
+        file_path = ep.get("file")
+        function = ep.get("function", "")
+        if not file_path:
+            continue
+        full_path = root / file_path
+        language = _language_from_path(Path(file_path))
+        results.append(
+            EntryPoint(
+                file=full_path,
+                function=function,
+                language=language,
+                confidence="high",  # config-declared = operator certainty
+                framework=ep.get("framework"),
+            )
+        )
+    return results
+
+
+def _auto_detect_entry_points(
+    root: Path,
+    files: list[Path],
+    primary_language: str | None,
+) -> list[EntryPoint]:
+    results: list[EntryPoint] = []
+    seen: set[tuple[Path, str]] = set()
+
+    for path in files:
+        if any(part in _IGNORED_FOR_EP for part in path.parts):
+            continue
+        suffix = path.suffix.lower()
+        lang = _language_from_suffix(suffix)
+        if not lang:
+            continue
+
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        eps = _detect_py(path, text, root) if lang == "python" else []
+        if lang in {"typescript", "javascript"}:
+            eps = _detect_ts(path, text, root)
+        elif lang == "rust":
+            eps = _detect_rs(path, text, root)
+
+        for ep in eps:
+            key = (ep.file, ep.function)
+            if key not in seen:
+                seen.add(key)
+                results.append(ep)
+
+    return results
+
+
+def _detect_py(path: Path, text: str, root: Path) -> list[EntryPoint]:
+    results: list[EntryPoint] = []
+    is_agents_dir = "agents" in path.parts or path.stem.startswith("agent")
+    has_client = bool(_PY_CLIENT_PATTERN.search(text))
+
+    for pattern, raw_confidence, framework in _PY_ENTRY_PATTERNS:
+        for m in pattern.finditer(text):
+            func = m.group(1) if m.lastindex else "main"
+            # Boost confidence if file is in agents/ or imports client
+            confidence = raw_confidence
+            if raw_confidence == "low" and (is_agents_dir or has_client):
+                confidence = "medium"
+            if raw_confidence == "medium" and has_client:
+                confidence = "high"
+            results.append(
+                EntryPoint(
+                    file=path,
+                    function=func,
+                    language="python",
+                    confidence=confidence,
+                    framework=framework,
+                )
+            )
+    return results
+
+
+def _detect_ts(path: Path, text: str, root: Path) -> list[EntryPoint]:
+    results: list[EntryPoint] = []
+    is_agents_dir = "agents" in path.parts
+
+    for pattern, raw_confidence, framework in _TS_ENTRY_PATTERNS:
+        for m in pattern.finditer(text):
+            func = m.group(1) if m.lastindex and m.lastindex >= 1 else "default"
+            try:
+                func = m.group(1)
+            except IndexError:
+                func = "default"
+            confidence = raw_confidence
+            if raw_confidence == "medium" and is_agents_dir:
+                confidence = "high"
+            results.append(
+                EntryPoint(
+                    file=path,
+                    function=func,
+                    language="typescript",
+                    confidence=confidence,
+                    framework=framework,
+                )
+            )
+    return results
+
+
+def _detect_rs(path: Path, text: str, root: Path) -> list[EntryPoint]:
+    results: list[EntryPoint] = []
+    has_client = bool(_RS_CLIENT_PATTERN.search(text))
+    if not has_client:
+        return results  # only flag Rust files that use an LLM client
+
+    for pattern, raw_confidence, framework in _RS_ENTRY_PATTERNS:
+        for m in pattern.finditer(text):
+            func = m.group(1) if m.lastindex else "run"
+            results.append(
+                EntryPoint(
+                    file=path,
+                    function=func,
+                    language="rust",
+                    confidence=raw_confidence,
+                    framework=framework,
+                )
+            )
+    return results
+
+
+def _language_from_path(path: Path) -> str:
+    return _language_from_suffix(path.suffix.lower()) or "unknown"
+
+
+def _language_from_suffix(suffix: str) -> str | None:
+    return {
+        ".py": "python",
+        ".pyi": "python",
+        ".ts": "typescript",
+        ".tsx": "typescript",
+        ".js": "javascript",
+        ".jsx": "javascript",
+        ".mjs": "javascript",
+        ".rs": "rust",
+    }.get(suffix)

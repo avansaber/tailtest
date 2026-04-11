@@ -429,23 +429,31 @@ def test_read_agent_code_returns_empty_for_empty_project(
     assert code == ""
 
 
-def test_read_agent_code_uses_config_override(
+def test_read_agent_code_uses_profile_entry_points(
     runner: RedTeamRunner,
-    agent_profile: ProjectProfile,
     tmp_path: Path,
 ) -> None:
-    # Create a custom agent file declared in config
+    # Create a custom agent file and put it in the profile as a detected entry point
+    from tailtest.core.scan.profile import EntryPoint
+
     custom_agent = tmp_path / "src" / "my_bot.py"
     custom_agent.parent.mkdir()
     custom_agent.write_text("def handle(msg): return llm(msg)\n")
 
-    config_dir = tmp_path / ".tailtest"
-    config_dir.mkdir()
-    (config_dir / "config.yaml").write_text(
-        "agent:\n  entry_points:\n    - file: src/my_bot.py\n"
+    profile = ProjectProfile(
+        root=tmp_path,
+        primary_language="python",
+        ai_surface=AISurface.AGENT,
+        agent_entry_points=[
+            EntryPoint(
+                file=custom_agent,
+                function="handle",
+                language="python",
+                confidence="high",
+            )
+        ],
     )
-
-    code = runner._read_agent_code(agent_profile, tmp_path)
+    code = runner._read_agent_code(profile, tmp_path)
     assert "handle" in code
 
 
