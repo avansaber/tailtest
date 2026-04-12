@@ -6,7 +6,7 @@ No. As of the current release, the plugin is self-contained. The bootstrap (`hoo
 
 ```bash
 claude plugin marketplace add avansaber/tailtest
-claude plugin install tailtest@avansaber
+claude plugin install tailtest@avansaber-tailtest
 ```
 
 `pip install tailtester` is only needed if you want the **standalone CLI** (`tailtest run`, `tailtest doctor`, `tailtest scan`) outside of Claude Code, or if you want to run tailtest as an MCP server in another IDE. Plugin users do not need pip.
@@ -52,7 +52,7 @@ You can also wire the MCP server into any MCP-aware IDE via `.mcp.json`.
 
 This writes `depth: off` to `.tailtest/config.yaml` and takes effect on the next edit. The hook still fires but short-circuits immediately -- nothing runs. Toggle back with `/tailtest:depth standard` when you're ready.
 
-If you want tailtest gone entirely: `claude plugin uninstall tailtest@avansaber`.
+If you want tailtest gone entirely: `claude plugin uninstall tailtest@avansaber-tailtest`.
 
 ---
 

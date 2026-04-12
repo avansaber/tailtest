@@ -4,14 +4,14 @@
 
 tailtest watches every edit your AI agent makes inside Claude Code, runs the tests that matter, scans for security issues that matter, and feeds findings back into Claude's next turn so the agent can fix them in the same session. The hot loop never blocks your work.
 
-**Current release:** [v0.4.0](https://github.com/avansaber/tailtest/releases/tag/v0.4.0) — bug fix release. Fixes terminal showing "clean" when pytest times out; fixes "no runners detected" when the binary is simply missing; bumps PyPI version above v1 shadow (was 0.2.0, v1 was 0.3.1).
+**Current release:** [v0.4.1](https://github.com/avansaber/tailtest/releases/tag/v0.4.1) — hook format fix. Corrects SessionStart output (plain text, not JSON) and PostToolUse envelope (`additionalContext` at top level, not wrapped in `hookSpecificOutput`). Fixes PostToolUse crash on ImportError; tightens bootstrap import guard. Hooks now work correctly in interactive sessions.
 
 ## Quickstart (5 minutes)
 
 ```bash
 # 1. Install the plugin from the GitHub marketplace (no pip needed)
 claude plugin marketplace add avansaber/tailtest
-claude plugin install tailtest@avansaber
+claude plugin install tailtest@avansaber-tailtest
 
 # 2. Restart your Claude Code session
 # (the skill registry doesn't hot-load, so a restart is mandatory)
@@ -85,7 +85,7 @@ Phase 1 configs (with `sast: true/false` as plain bools) keep parsing — the lo
 
 | Channel | Install | When to use it |
 |---|---|---|
-| **Claude Code plugin** (recommended) | `claude plugin marketplace add avansaber/tailtest && claude plugin install tailtest@avansaber` | Full experience: hot loop hooks, skills, MCP, on-disk output. No pip required. |
+| **Claude Code plugin** (recommended) | `claude plugin marketplace add avansaber/tailtest && claude plugin install tailtest@avansaber-tailtest` | Full experience: hot loop hooks, skills, MCP, on-disk output. No pip required. |
 | **Standalone CLI** (optional) | `pip install tailtester` | CI pipelines, raw terminal use, or any workflow outside Claude Code. The PyPI package name is `tailtester`; the importable Python package is `tailtest`. |
 | **MCP server** | `tailtest mcp-serve` | Cursor, Windsurf, Codex, or any MCP-aware IDE. Requires the pip install. Phase 4 will harden this path. |
 
@@ -98,7 +98,7 @@ Phase 1 configs (with `sast: true/false` as plain bools) keep parsing — the lo
 
 ## What tailtest does NOT do (yet)
 
-Current limitations in v0.4.0:
+Current limitations in v0.4.1:
 
 - No multi-language SCA beyond Python + JS. Go / Rust / Java on the roadmap.
 - No EPSS / KEV / NVD severity enrichment for SCA findings.
