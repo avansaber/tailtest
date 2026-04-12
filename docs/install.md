@@ -6,7 +6,7 @@ This page covers the full install story, the upgrade path from older releases, a
 
 ```bash
 # 1. Install the Python package (the hook needs it)
-python3 -m python3 -m pip install tailtester
+python3 -m pip install tailtester
 
 # 2. Install the Claude Code plugin
 claude plugin marketplace add avansaber/tailtest
@@ -88,11 +88,23 @@ After uninstalling v1, install v2 as described above.
 ## Upgrading the plugin itself
 
 ```bash
-claude plugin upgrade tailtest@avansaber-tailtest
+claude plugin marketplace update avansaber-tailtest   # pull latest catalog from GitHub
+claude plugin uninstall tailtest@avansaber-tailtest
+claude plugin install tailtest@avansaber-tailtest
 # then quit and restart Claude Code
 ```
 
 Same restart-after-upgrade rule applies. Claude Code's hook + skill registries don't hot-reload on plugin upgrade.
+
+### v0.4.1 -- hook output format (upgrade recommended)
+
+If you were on v0.4.0 or earlier, the PostToolUse and SessionStart hooks were silently producing no output in interactive sessions. The root cause was a wrong JSON envelope (`hookSpecificOutput` wrapper) that Claude Code ignores for context-injection hooks. v0.4.1 fixes both:
+
+- **SessionStart** now outputs plain text to stdout (correct per Claude Code spec). Previously it wrapped output in `{"hookSpecificOutput": ...}` which Claude Code silently discarded.
+- **PostToolUse** now outputs `{"additionalContext": "..."}` flat JSON. Previously it wrapped it in `hookSpecificOutput` which Claude Code also discarded.
+- **Import crash fix:** if the tailtest engine was missing or had an import error at hook fire time, the PostToolUse shim crashed with a traceback and a non-zero exit. v0.4.1 wraps the import inside try/except so the hook always exits 0 and fails silently instead of crashing.
+
+To upgrade: uninstall + reinstall as shown above, then restart Claude Code. If you see `tailtest: N/N tests passed` appearing in Claude's responses after file edits, the hook is working correctly.
 
 ## Uninstalling
 
