@@ -24,14 +24,11 @@ from uuid import uuid4
 
 import click
 
-# Self-register runners (order does not matter, the registry is keyed by language).
-import tailtest.core.runner.javascript  # noqa: F401, E402
-import tailtest.core.runner.python  # noqa: F401, E402
 from tailtest.core.baseline import BaselineManager
 from tailtest.core.config import ConfigLoader, DepthMode
 from tailtest.core.findings.schema import FindingBatch
 from tailtest.core.reporter import TerminalReporter
-from tailtest.core.runner import get_default_registry
+from tailtest.core.runner import _register_all_runners, get_default_registry
 
 # Format options. Phase 1 ships terminal + json. Phase 2 adds html.
 _FORMAT_TERMINAL = "terminal"
@@ -130,7 +127,8 @@ def run_cmd(
                 err=True,
             )
 
-    # Find a runner
+    # Find a runner -- register all modules first so node_test/ava/mocha/tape/rust are visible.
+    _register_all_runners()
     registry = get_default_registry()
     runners = registry.all_for_project(root)
     if not runners:

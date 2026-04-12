@@ -121,9 +121,16 @@ class PythonRunner(BaseRunner):
         return False
 
     def _has_tests_dir(self) -> bool:
+        # Only count test directories that contain at least one Python file.
+        # A directory named "tests/" with only .ts files (e.g. Feynman) must
+        # not trigger Python runner discovery -- that would be a false positive.
         test_dirs = find_test_directories(self.project_root)
-        if test_dirs:
-            return True
+        for d in test_dirs:
+            try:
+                if any(d.glob("*.py")):
+                    return True
+            except OSError:
+                continue
         # Fallback: check if there are any test_*.py files at the root level
         return any(self.project_root.glob("test_*.py"))
 

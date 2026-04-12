@@ -59,9 +59,9 @@ from uuid import uuid4
 # Self-register runners at import time. This package is loaded via the
 # repo-root hook shim, which inherits the tailtest venv PYTHONPATH, so
 # the import chain here populates the default registry before we touch it.
-import tailtest.core.runner.javascript  # noqa: F401, E402
-import tailtest.core.runner.python  # noqa: F401, E402
-import tailtest.core.runner.rust  # noqa: F401, E402
+from tailtest.core.runner import _register_all_runners as _reg  # noqa: E402
+
+_reg()  # populate registry before any all_for_project() call
 from tailtest.core.baseline import BaselineManager
 from tailtest.core.config import Config, ConfigLoader, DepthMode
 from tailtest.core.events import Event, EventKind, EventWriter

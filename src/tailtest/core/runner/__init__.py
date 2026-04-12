@@ -26,6 +26,23 @@ __all__ = [
     "RunnerNotAvailable",
     "RunnerRegistry",
     "TestID",
+    "_register_all_runners",
     "get_default_registry",
     "register_runner",
 ]
+
+
+def _register_all_runners() -> None:
+    """Import every runner module to trigger their @register_runner decorators.
+
+    Call this once in each entry-point (CLI commands, hooks) before calling
+    get_default_registry().all_for_project(). Omitting it leaves node_test,
+    ava, mocha, tape, and rust unregistered so they are silently skipped.
+    """
+    import tailtest.core.runner.ava  # noqa: F401
+    import tailtest.core.runner.javascript  # noqa: F401
+    import tailtest.core.runner.mocha  # noqa: F401
+    import tailtest.core.runner.node_test  # noqa: F401
+    import tailtest.core.runner.python  # noqa: F401
+    import tailtest.core.runner.rust  # noqa: F401
+    import tailtest.core.runner.tape  # noqa: F401

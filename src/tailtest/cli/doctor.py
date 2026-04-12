@@ -98,8 +98,9 @@ def doctor_cmd(path: str | None, verbose: bool, project_root: str | None) -> Non
     checks.append(_check_python_version())
     checks.append(_check_claude_cli())
     checks.append(_check_mcp_server_handshake())
-    checks.append(_check_runner_detection(root))
-    checks.append(_check_pytest_binary(root))
+    python_runner_detected = _check_runner_detection(root, checks)
+    if python_runner_detected:
+        checks.append(_check_pytest_binary(root))
     checks.append(_check_tailtest_dir_writable(root))
     checks.append(_check_config_valid(root))
     checks.append(_check_baseline_valid(root))
@@ -242,22 +243,34 @@ def _check_mcp_server_handshake() -> Check:
     )
 
 
-def _check_runner_detection(root: Path) -> Check:
-    # Self-register all runners so the registry is populated before lookup.
-    import tailtest.core.runner.javascript  # noqa: F401
-    import tailtest.core.runner.python  # noqa: F401
-    from tailtest.core.runner import get_default_registry
+def _check_runner_detection(root: Path, checks: list[Check]) -> bool:
+    """Append a runner-detection Check to *checks*. Returns True if a Python runner was found."""
+    from tailtest.core.runner import _register_all_runners, get_default_registry
 
-    runners = get_default_registry().all_for_project(root)
+    _register_all_runners()
+    registry = get_default_registry()
+    runners = registry.all_for_project(root)
     if not runners:
-        return Check(
-            name="Runner detection",
-            result=CheckResult.WARN,
-            message="no runners detected for the current project",
-            detail=f"project root: {root}",
-        )
+        unavailable = registry.unavailable_reasons(root)
+        if unavailable:
+            detail = "; ".join(f"{n}: {r}" for n, r in unavailable.items())
+            checks.append(Check(
+                name="Runner detection",
+                result=CheckResult.WARN,
+                message="runner configured but binary missing",
+                detail=detail,
+            ))
+        else:
+            checks.append(Check(
+                name="Runner detection",
+                result=CheckResult.WARN,
+                message="no runners detected for the current project",
+                detail=f"project root: {root}",
+            ))
+        return False
     names = ", ".join(r.name for r in runners)
-    return Check(name="Runner detection", result=CheckResult.PASS, message=names)
+    checks.append(Check(name="Runner detection", result=CheckResult.PASS, message=names))
+    return any(r.language == "python" for r in runners)
 
 
 def _check_pytest_binary(root: Path) -> Check:

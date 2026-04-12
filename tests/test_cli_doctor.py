@@ -28,14 +28,18 @@ def test_python_version_check_passes_on_311_plus() -> None:
 
 
 def test_runner_detection_finds_pytest_in_python_fixture() -> None:
-    check = _check_runner_detection(FIXTURE_PASSING)
-    assert check.result == CheckResult.PASS
-    assert "pytest" in check.message
+    checks: list[Check] = []
+    _check_runner_detection(FIXTURE_PASSING, checks)
+    assert len(checks) == 1
+    assert checks[0].result == CheckResult.PASS
+    assert "pytest" in checks[0].message
 
 
 def test_runner_detection_warns_on_empty_project(tmp_path: Path) -> None:
-    check = _check_runner_detection(tmp_path)
-    assert check.result == CheckResult.WARN
+    checks: list[Check] = []
+    _check_runner_detection(tmp_path, checks)
+    assert len(checks) == 1
+    assert checks[0].result == CheckResult.WARN
 
 
 def test_tailtest_dir_writable_check(tmp_path: Path) -> None:
@@ -71,6 +75,28 @@ def test_doctor_cli_verbose_flag() -> None:
     runner = CliRunner()
     result = runner.invoke(doctor_cmd, ["--project-root", str(FIXTURE_PASSING), "--verbose"])
     assert "tailtest doctor:" in result.output
+
+
+def test_runner_detection_ignores_ts_tests_dir(tmp_path: Path) -> None:
+    """PythonRunner must not claim a TypeScript project just because it has a tests/ dir.
+
+    Regression for BUG-2 (Phase 7 Task 7.5 dogfood): doctor showed 'Runner detection:
+    pytest' for Feynman (TypeScript/node-test) because _has_tests_dir() returned True
+    for any directory named 'tests', regardless of whether it contained Python files.
+    """
+    # Simulate a TypeScript project: package.json, tests/ dir with only .ts files.
+    (tmp_path / "package.json").write_text('{"name":"fake","scripts":{"test":"node --test"}}')
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "main.test.ts").write_text("// TypeScript test")
+
+    checks: list[Check] = []
+    # PythonRunner should NOT discover this project (no Python test files).
+    # Result may be WARN (no runners) if no JS runner detects it either --
+    # what matters is that pytest is NOT in the message.
+    _check_runner_detection(tmp_path, checks)
+    assert len(checks) == 1
+    assert "pytest" not in checks[0].message
 
 
 def test_check_render_no_color() -> None:
