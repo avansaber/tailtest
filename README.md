@@ -4,7 +4,7 @@
 
 tailtest watches every edit your AI agent makes inside Claude Code, runs the tests that matter, scans for security issues that matter, and feeds findings back into Claude's next turn so the agent can fix them in the same session. The hot loop never blocks your work.
 
-**Current release:** [v0.1.1](https://github.com/avansaber/tailtest/releases/tag/v0.1.1) — Phase 7 (launch) shipped. Tests + 4 security scanners (secrets, SAST, SCA, AI red team) in the Claude Code hot loop.
+**Current release:** [v0.2.0](https://github.com/avansaber/tailtest/releases/tag/v0.2.0) — Phase 8 (context-aware test generation) shipped. The generator now AST-scans source files for domain vocabulary and produces tests that know about your enums, exception hierarchy, and typed function signatures.
 
 ## Quickstart (5 minutes)
 
@@ -33,7 +33,7 @@ For the full walkthrough including troubleshooting, see [`docs/quickstart.md`](d
 - **Scans for SAST issues** via Semgrep across the changed files using the curated `p/default` ruleset. Configurable per project.
 - **Scans dependencies** for known vulnerabilities via the OSV.dev API on every manifest edit (`pyproject.toml`, `package.json`). Hydrated severity, CWE IDs, fixed-version hints, and alias dedup so you see each advisory once.
 - **Computes delta coverage** on the lines your edit touched (Python). The next-turn context calls out exactly which new lines are uncovered.
-- **Suggests test generation** for pure functions you just added that have no test, so you can run `/tailtest:gen <file>` and let Claude write a starter test for you.
+- **Generates context-aware starter tests** via `/tailtest:gen <file>`. AST-scans the source for domain entities (enums, exception types, key classes, auth patterns), loads the project profile for runner and framework context, and generates tests that understand your code's domain. Pass `--context "description"` to describe the module manually. Line 2 of the output is a detection note showing what context was used.
 - **Filters known issues via a baseline** at `.tailtest/baseline.yaml`. Existing debt stays silent; only NEW issues surface.
 - **Renders a self-contained HTML report** at `.tailtest/reports/latest.html` after every run. No JavaScript, no CDN, opens offline.
 - **Red-teams AI agent entry points** at `paranoid` depth via a 64-attack catalog covering the OWASP LLM Top 10. Each attack is judged by `claude -p`; findings land in a timestamped HTML report at `.tailtest/reports/redteam-*.html`.
@@ -98,7 +98,7 @@ Phase 1 configs (with `sast: true/false` as plain bools) keep parsing — the lo
 
 ## What tailtest does NOT do (yet)
 
-Current limitations in v0.1.1:
+Current limitations in v0.2.0:
 
 - No multi-language SCA beyond Python + JS. Go / Rust / Java on the roadmap.
 - No EPSS / KEV / NVD severity enrichment for SCA findings.
@@ -113,7 +113,7 @@ tailtest/
 ├── hooks/                       PostToolUse / SessionStart hook shims
 ├── skills/                      User-invocable slash commands
 ├── src/tailtest/                Python package source
-├── tests/                       Pytest suite (1092 tests)
+├── tests/                       Pytest suite (1166 tests)
 ├── pyproject.toml
 ├── README.md                    This file
 ├── LICENSE                      Apache 2.0
@@ -123,7 +123,7 @@ tailtest/
 
 ## Contributing
 
-The project is in active development through Phase 7 (launch). The current release is `v0.1.1`. The issue tracker on [github.com/avansaber/tailtest](https://github.com/avansaber/tailtest) is open for bug reports and feature requests. PRs are reviewed but the bar for accepting external code is high while the architecture is still moving.
+The project is in active development through Phase 8. The current release is `v0.2.0`. The issue tracker on [github.com/avansaber/tailtest](https://github.com/avansaber/tailtest) is open for bug reports and feature requests. PRs are reviewed but the bar for accepting external code is high while the architecture is still moving.
 
 ## License
 

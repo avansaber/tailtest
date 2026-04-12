@@ -799,6 +799,462 @@ def test_resolve_rust_integration_test_path(tmp_path: Path) -> None:
 # --- Never-commits guarantee -------------------------------------------
 
 
+# --- Phase 8 Task 8.1: project context loading + prompt injection ----------
+
+
+def _write_profile(tmp_path: Path, **overrides: object) -> None:
+    """Write a minimal valid profile.json under ``tmp_path/.tailtest/``."""
+    from tailtest.core.scan.profile import (
+        DetectedFramework,
+        DetectedRunner,
+        DirectoryClassification,
+        ProjectProfile,
+    )
+
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir(exist_ok=True)
+    fields: dict = dict(
+        root=tmp_path,
+        primary_language="python",
+        runners_detected=[DetectedRunner(name="pytest", language="python")],
+        frameworks_detected=[
+            DetectedFramework(name="fastapi", confidence="high", source="pyproject.toml", category="web")
+        ],
+        likely_vibe_coded=False,
+        directories=DirectoryClassification(tests=[tmp_path / "tests"]),
+        llm_summary=None,
+    )
+    fields.update(overrides)
+    profile = ProjectProfile(**fields)
+    (tailtest_dir / "profile.json").write_text(profile.to_json(), encoding="utf-8")
+
+
+def test_load_project_context_valid_profile(tmp_path: Path) -> None:
+    """When profile.json is present and valid, ProjectContext fields match."""
+    from tailtest.core.generator.prompts import ProjectContext
+
+    _write_profile(tmp_path, llm_summary="Billing API for SaaS invoicing.")
+    gen = TestGenerator(tmp_path)
+    ctx = gen._load_project_context()
+
+    assert isinstance(ctx, ProjectContext)
+    assert ctx.primary_language == "python"
+    assert ctx.runner == "pytest"
+    assert ctx.framework_category == "web"
+    assert ctx.likely_vibe_coded is False
+    assert ctx.llm_summary == "Billing API for SaaS invoicing."
+
+
+def test_load_project_context_malformed_json_returns_none(tmp_path: Path) -> None:
+    """Malformed profile.json must return None without raising."""
+    tailtest_dir = tmp_path / ".tailtest"
+    tailtest_dir.mkdir()
+    (tailtest_dir / "profile.json").write_text("{bad json{{", encoding="utf-8")
+
+    gen = TestGenerator(tmp_path)
+    ctx = gen._load_project_context()
+    assert ctx is None
+
+
+def test_load_project_context_no_profile_returns_none(tmp_path: Path) -> None:
+    """When .tailtest/profile.json does not exist, context is None."""
+    gen = TestGenerator(tmp_path)
+    assert gen._load_project_context() is None
+
+
+def test_load_project_context_shallow_scan_no_summary(tmp_path: Path) -> None:
+    """Shallow scan (no deep scan) yields context with llm_summary=None."""
+    from tailtest.core.generator.prompts import ProjectContext
+
+    _write_profile(tmp_path)  # no llm_summary kwarg -> stays None
+    gen = TestGenerator(tmp_path)
+    ctx = gen._load_project_context()
+
+    assert isinstance(ctx, ProjectContext)
+    assert ctx.llm_summary is None
+
+
+def test_build_user_prompt_with_context_contains_summary() -> None:
+    """When project_context is provided, ## Project context block appears."""
+    from tailtest.core.generator.prompts import ProjectContext
+
+    ctx = ProjectContext(
+        llm_summary="Invoice management for multi-tenant SaaS.",
+        primary_language="python",
+        runner="pytest",
+        framework_category="web",
+        likely_vibe_coded=False,
+    )
+    out = build_user_prompt(
+        source_path="src/billing.py",
+        source_text="def charge(amount): pass",
+        language="python",
+        framework="pytest",
+        header_line=_PYTHON_HEADER,
+        scope="module",
+        project_context=ctx,
+    )
+    assert "## Project context" in out
+    assert "Invoice management for multi-tenant SaaS." in out
+    assert "language: python" in out
+    assert "runner: pytest" in out
+    assert "framework_category: web" in out
+
+
+def test_build_user_prompt_without_context_no_context_block() -> None:
+    """When project_context is None, no ## Project context block appears."""
+    out = build_user_prompt(
+        source_path="src/widget.py",
+        source_text="def add(a, b): return a + b",
+        language="python",
+        framework="pytest",
+        header_line=_PYTHON_HEADER,
+        scope="module",
+        project_context=None,
+    )
+    assert "## Project context" not in out
+
+
+def test_build_user_prompt_none_context_byte_identical_to_legacy() -> None:
+    """project_context=None must produce the same bytes as the pre-Phase-8 call."""
+    kwargs: dict = dict(
+        source_path="src/widget.py",
+        source_text="def add(a, b): return a + b",
+        language="python",
+        framework="pytest",
+        header_line=_PYTHON_HEADER,
+        scope="module",
+    )
+    legacy = build_user_prompt(**kwargs)
+    with_none = build_user_prompt(**kwargs, project_context=None)
+    assert legacy == with_none
+
+
+def test_build_user_prompt_long_summary_truncated() -> None:
+    """llm_summary longer than 300 chars must be hard-truncated at 300."""
+    from tailtest.core.generator.prompts import ProjectContext
+
+    long_summary = "A" * 400
+    ctx = ProjectContext(llm_summary=long_summary)
+    out = build_user_prompt(
+        source_path="src/x.py",
+        source_text="pass",
+        language="python",
+        framework="pytest",
+        header_line=_PYTHON_HEADER,
+        scope="module",
+        project_context=ctx,
+    )
+    # The full 400-char string must NOT appear; only the first 300.
+    assert long_summary not in out
+    assert "A" * 300 in out
+
+
+def test_build_user_prompt_warns_when_prompt_exceeds_threshold(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A prompt exceeding 7 500 chars logs a warning (does not raise)."""
+    import logging
+
+    from tailtest.core.generator.prompts import ProjectContext
+
+    ctx = ProjectContext(llm_summary="Short summary.")
+    large_source = "x = 1\n" * 1500  # ~9 000 chars of source text
+
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="tailtest.core.generator.prompts"):
+        out = build_user_prompt(
+            source_path="src/big.py",
+            source_text=large_source,
+            language="python",
+            framework="pytest",
+            header_line=_PYTHON_HEADER,
+            scope="module",
+            project_context=ctx,
+        )
+    assert len(out) > 7_500
+    assert any("7500" in r.message or "threshold" in r.message for r in caplog.records)
+
+
+# --- Phase 8 Task 8.4: test style sampling ------------------------------------
+
+
+def test_sample_test_style_sibling_test_found(tmp_path: Path) -> None:
+    """When the sibling test file already exists, it is selected."""
+    src = tmp_path / "src" / "widget.py"
+    src.parent.mkdir(parents=True)
+    src.write_text("def add(a, b): return a + b\n")
+
+    sibling = tmp_path / "tests" / "unit" / "test_widget.py"
+    sibling.parent.mkdir(parents=True)
+    sibling.write_text(
+        "import pytest\n\n@pytest.mark.parametrize('a,b,r', [(1,2,3)])\ndef test_add(a, b, r):\n    assert add(a, b) == r\n"
+    )
+
+    gen = TestGenerator(tmp_path)
+    sample = gen._sample_test_style(src, "python", [tmp_path / "tests"])
+    assert sample is not None
+    assert "parametrize" in sample
+
+
+def test_sample_test_style_fallback_to_tests_dir(tmp_path: Path) -> None:
+    """When no sibling test exists, fall back to most-recently-modified file in tests_dirs."""
+    src = tmp_path / "src" / "billing.py"
+    src.parent.mkdir(parents=True)
+    src.write_text("def charge(): pass\n")
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    other = tests_dir / "test_other.py"
+    other.write_text("def test_other():\n    assert True\n")
+
+    gen = TestGenerator(tmp_path)
+    sample = gen._sample_test_style(src, "python", [tests_dir])
+    assert sample is not None
+    assert "test_other" in sample
+
+
+def test_sample_test_style_no_tests_returns_none(tmp_path: Path) -> None:
+    """When tests_dirs is empty and no sibling exists, return None."""
+    src = tmp_path / "src" / "widget.py"
+    src.parent.mkdir(parents=True)
+    src.write_text("def add(a, b): return a + b\n")
+
+    gen = TestGenerator(tmp_path)
+    assert gen._sample_test_style(src, "python", []) is None
+
+
+def test_sample_test_style_tests_dirs_not_in_profile_returns_none(tmp_path: Path) -> None:
+    """tests_dirs=[] (no profile) is not an error; returns None."""
+    src = tmp_path / "src" / "widget.py"
+    src.parent.mkdir(parents=True)
+    src.write_text("pass\n")
+    gen = TestGenerator(tmp_path)
+    assert gen._sample_test_style(src, "python", []) is None
+
+
+def test_sample_test_style_truncates_long_file(tmp_path: Path) -> None:
+    """Files exceeding 1 200 chars are truncated with the marker."""
+    src = tmp_path / "src" / "widget.py"
+    src.parent.mkdir(parents=True)
+    src.write_text("pass\n")
+
+    sibling = tmp_path / "tests" / "unit" / "test_widget.py"
+    sibling.parent.mkdir(parents=True)
+    long_content = ("# " + "x" * 50 + "\n") * 40  # 30 lines * 52 chars > 1200 chars
+    sibling.write_text(long_content)
+
+    gen = TestGenerator(tmp_path)
+    sample = gen._sample_test_style(src, "python", [tmp_path / "tests"])
+    assert sample is not None
+    assert "# ... (truncated)" in sample
+    assert len(sample) <= 1_220  # 1200 + marker overhead
+
+
+def test_sample_test_style_conftest_excluded(tmp_path: Path) -> None:
+    """conftest.py must never be selected as the style sample."""
+    src = tmp_path / "src" / "billing.py"
+    src.parent.mkdir(parents=True)
+    src.write_text("pass\n")
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    conftest = tests_dir / "conftest.py"
+    conftest.write_text("import pytest\n@pytest.fixture\ndef client(): pass\n")
+
+    gen = TestGenerator(tmp_path)
+    assert gen._sample_test_style(src, "python", [tests_dir]) is None
+
+
+def test_build_user_prompt_includes_style_sample() -> None:
+    """test_style_sample appears as ## Existing test style (sample) before source."""
+    sample = "@pytest.mark.parametrize('x', [1, 2])\ndef test_x(x): assert x > 0\n"
+    out = build_user_prompt(
+        source_path="src/billing.py",
+        source_text="def charge(): pass",
+        language="python",
+        framework="pytest",
+        header_line=_PYTHON_HEADER,
+        scope="module",
+        test_style_sample=sample,
+    )
+    assert "## Existing test style (sample)" in out
+    assert "Match the style" in out
+    assert "parametrize" in out
+    # Style section must appear before source contents.
+    assert out.index("## Existing test style") < out.index("## Source file contents")
+
+
+def test_build_user_prompt_no_style_section_when_none() -> None:
+    out = build_user_prompt(
+        source_path="src/x.py",
+        source_text="pass",
+        language="python",
+        framework="pytest",
+        header_line=_PYTHON_HEADER,
+        scope="module",
+        test_style_sample=None,
+    )
+    assert "## Existing test style" not in out
+
+
+# --- Phase 8 Task 8.5: detection note insertion ---------------------------
+
+
+@pytest.mark.asyncio
+async def test_generate_inserts_detection_note_on_line_2(tmp_path: Path) -> None:
+    """Line 2 of the generated file must be the tailtest detection note."""
+    src = tmp_path / "src" / "billing.py"
+    src.parent.mkdir()
+    src.write_text(
+        "from enum import Enum\n\nclass InvoiceStatus(Enum):\n    DRAFT = 'draft'\n\n"
+        "def approve(invoice: object) -> None:\n    pass\n"
+    )
+
+    generated = (
+        f"{_PYTHON_HEADER}\n"
+        "from src.billing import approve\n\n"
+        "def test_approve():\n"
+        "    assert approve(object()) is None\n"
+    )
+    stdout = _mock_claude_result(generated)
+
+    async def fake_exec(*args, **kwargs):
+        return _MockProcess(stdout=stdout)
+
+    gen = TestGenerator(tmp_path)
+    with (
+        patch("shutil.which", return_value="/fake/claude"),
+        patch("asyncio.create_subprocess_exec", new=fake_exec),
+    ):
+        result = await gen.generate(src)
+
+    content = result.test_path.read_text()
+    lines = content.splitlines()
+    assert lines[0] == _PYTHON_HEADER
+    assert lines[1].startswith("# tailtest")
+    # The InvoiceStatus enum should appear in the detection note.
+    assert "InvoiceStatus" in lines[1]
+
+
+def test_insert_detection_note_places_note_after_header() -> None:
+    text = "# header\nfrom foo import bar\n\ndef test_x():\n    assert True\n"
+    result = TestGenerator._insert_detection_note(text, "# note")
+    lines = result.splitlines()
+    assert lines[0] == "# header"
+    assert lines[1] == "# note"
+    assert lines[2] == "from foo import bar"
+
+
+# --- Phase 8 Task 8.8: token budget guard ------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_budget_guard_strips_style_sample_first(tmp_path: Path) -> None:
+    """When the prompt exceeds budget, test_style_sample is removed first."""
+    from tailtest.core.scan.profile import DirectoryClassification
+
+    src = tmp_path / "src" / "billing.py"
+    src.parent.mkdir()
+
+    # Create a test file in tests_dir so _sample_test_style has something to pick up.
+    tests_dir = tmp_path / "tests" / "unit"
+    tests_dir.mkdir(parents=True)
+    style_file = tests_dir / "test_other.py"
+    style_file.write_text(
+        "@pytest.mark.parametrize('x', [1])\ndef test_other(x):\n    assert x\n"
+    )
+
+    # Write a profile so tests_dirs flows into _sample_test_style.
+    _write_profile(
+        tmp_path,
+        directories=DirectoryClassification(tests=[tests_dir]),
+    )
+
+    # Use a huge source to push the prompt over the budget.
+    large_source = "x = 1  # padding\n" * 400
+    src.write_text(large_source)
+
+    generated = f"{_PYTHON_HEADER}\ndef test_billing():\n    assert True\n"
+    stdout = _mock_claude_result(generated)
+    captured_prompt: list[str] = []
+
+    async def fake_exec(*args, **kwargs):
+        captured_prompt.append(args[2])
+        return _MockProcess(stdout=stdout)
+
+    gen = TestGenerator(tmp_path)
+    with (
+        patch("shutil.which", return_value="/fake/claude"),
+        patch("asyncio.create_subprocess_exec", new=fake_exec),
+    ):
+        await gen.generate(src)
+
+    assert captured_prompt, "claude was not called"
+    prompt = captured_prompt[0]
+    assert "Existing test style" not in prompt
+    assert "Source file contents" in prompt
+
+
+@pytest.mark.asyncio
+async def test_budget_guard_mandatory_sections_survive(tmp_path: Path) -> None:
+    """Source file contents and header must survive all budget stripping."""
+    src = tmp_path / "src" / "big.py"
+    src.parent.mkdir()
+    large_source = "x = 1  # padding\n" * 400
+    src.write_text(large_source)
+
+    generated = f"{_PYTHON_HEADER}\ndef test_x():\n    assert True\n"
+    stdout = _mock_claude_result(generated)
+    captured_prompt: list[str] = []
+
+    async def fake_exec(*args, **kwargs):
+        captured_prompt.append(args[2])
+        return _MockProcess(stdout=stdout)
+
+    gen = TestGenerator(tmp_path)
+    with (
+        patch("shutil.which", return_value="/fake/claude"),
+        patch("asyncio.create_subprocess_exec", new=fake_exec),
+    ):
+        await gen.generate(src)
+
+    prompt = captured_prompt[0]
+    assert "Source file contents" in prompt
+    assert _PYTHON_HEADER in prompt
+
+
+@pytest.mark.asyncio
+async def test_budget_guard_warns_when_all_sections_stripped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Warning logged when source alone still exceeds the budget."""
+    import logging
+
+    src = tmp_path / "src" / "huge.py"
+    src.parent.mkdir()
+    # A source file large enough to overflow even with no optional sections.
+    enormous_source = "x = 1  # padding\n" * 600
+    src.write_text(enormous_source)
+
+    generated = f"{_PYTHON_HEADER}\ndef test_x():\n    assert True\n"
+    stdout = _mock_claude_result(generated)
+
+    async def fake_exec(*args, **kwargs):
+        return _MockProcess(stdout=stdout)
+
+    gen = TestGenerator(tmp_path)
+    with (
+        patch("shutil.which", return_value="/fake/claude"),
+        patch("asyncio.create_subprocess_exec", new=fake_exec),
+        caplog.at_level(logging.WARNING, logger="tailtest.core.generator.generator"),
+    ):
+        await gen.generate(src)
+
+    assert any("budget exceeded" in r.message or "Context stripped" in r.message for r in caplog.records)
+
+
 def test_generator_source_contains_no_git_calls() -> None:
     """Static guarantee: the generator module text has no git subprocess calls.
 

@@ -22,10 +22,12 @@ from tailtest.core.generator.generator import (
     GeneratorSkipped,
     TestGenerator,
 )
+from tailtest.core.generator.prompts import ProjectContext
 
 __all__ = [
     "GeneratedTest",
     "GenerationError",
     "GeneratorSkipped",
+    "ProjectContext",
     "TestGenerator",
 ]

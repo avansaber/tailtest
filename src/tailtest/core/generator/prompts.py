@@ -18,6 +18,81 @@ performs better on the compile gate in practice.
 
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tailtest.core.generator.ast_signals import DomainSignals
+
+logger = logging.getLogger(__name__)
+
+_PROMPT_WARN_CHARS = 7_500
+
+
+@dataclass(frozen=True)
+class ProjectContext:
+    """Project-level context injected into the test-generation prompt.
+
+    Produced by ``TestGenerator._load_project_context()`` from the
+    project's ``.tailtest/profile.json``. All fields are optional --
+    a shallow scan (no deep scan) leaves ``llm_summary`` as None.
+    """
+
+    llm_summary: str | None = None
+    primary_language: str | None = None
+    runner: str | None = None  # first detected runner name
+    framework_category: str = ""  # "" means no framework detected
+    likely_vibe_coded: bool = False
+    tests_dirs: list[Path] = field(default_factory=list)
+
+
+def _build_project_context_block(
+    ctx: ProjectContext | None,
+    signals: DomainSignals | None = None,
+    domain_cluster: str | None = None,
+) -> str:
+    """Render the ``## Project context`` section for the user prompt.
+
+    Returns an empty string when both ``ctx`` and ``signals`` are empty.
+    Format is compact key-value lines to minimise token usage. Domain
+    signals appear as a subsection at the end of the block.
+    """
+    lines: list[str] = []
+
+    if ctx is not None:
+        if ctx.llm_summary:
+            lines.append(f"summary: {ctx.llm_summary[:300]}")
+        if ctx.primary_language:
+            lines.append(f"language: {ctx.primary_language}")
+        if ctx.runner:
+            lines.append(f"runner: {ctx.runner}")
+        if ctx.framework_category:
+            lines.append(f"framework_category: {ctx.framework_category}")
+        lines.append(f"vibe_coded: {str(ctx.likely_vibe_coded).lower()}")
+
+    if signals is not None and not signals.is_empty():
+        if signals.enum_names:
+            lines.append(f"Enums: {', '.join(signals.enum_names)}")
+        if signals.exception_names:
+            lines.append(f"Exceptions: {', '.join(signals.exception_names)}")
+        key_types = [
+            t
+            for t in signals.top_class_names
+            if t not in signals.enum_names and t not in signals.exception_names
+        ]
+        if key_types:
+            lines.append(f"Key types: {', '.join(key_types)}")
+
+    if domain_cluster:
+        lines.append(f"Domain cluster (inferred from sibling files): {domain_cluster}")
+
+    if not lines:
+        return ""
+    return "## Project context\n" + "\n".join(lines) + "\n"
+
+
 SYSTEM_PROMPT = """You generate starter tests for source files.
 
 Rules you must follow:
@@ -117,19 +192,46 @@ def build_user_prompt(
     framework: str,
     header_line: str,
     scope: str,
+    project_context: ProjectContext | None = None,
+    domain_signals: DomainSignals | None = None,
+    category_hints: list[str] | None = None,
+    test_style_sample: str | None = None,
+    domain_cluster: str | None = None,
 ) -> str:
     """Assemble the user message passed to ``claude -p``.
 
     Parameters match ``TestGenerator.generate()``. ``scope`` is either
     ``"module"`` (cover the whole file) or ``"function"`` (cover a
     single exported entry point).
+
+    When ``project_context`` or ``domain_signals`` are provided, a
+    ``## Project context`` block is inserted before the source file
+    contents to help the model produce domain-aware tests.
     """
     scope_note = (
         "Generate tests covering every public function or class in this file."
         if scope == "module"
         else "Generate a single focused test for the first public function in this file."
     )
-    return f"""Generate a {framework} test for this {language} source file.
+
+    raw_block = _build_project_context_block(project_context, domain_signals, domain_cluster)
+    context_block = ("\n" + raw_block) if raw_block else ""
+
+    style_block = ""
+    if test_style_sample:
+        style_block = (
+            "\n## Existing test style (sample)\n"
+            "Match the style of this existing test file:\n"
+            f"```\n{test_style_sample}\n```\n"
+        )
+
+    hints_block = ""
+    if category_hints:
+        capped = category_hints[:5]
+        numbered = "\n".join(f"{i + 1}. {h}" for i, h in enumerate(capped))
+        hints_block = f"\n## What to generate\n{numbered}\n"
+
+    prompt = f"""Generate a {framework} test for this {language} source file.
 
 ## Source file path
 {source_path}
@@ -143,12 +245,21 @@ def build_user_prompt(
 ## Mandatory header line
 The first line of your output MUST be exactly:
 {header_line}
-
+{context_block}{style_block}
 ## Source file contents
 ```
 {source_text}
 ```
-
+{hints_block}
 ## Your output
 Emit ONLY the test file contents, starting with the mandatory header line above. No markdown fences. No explanations. The file must parse as valid {language} and pass a {framework} collection check.
 """
+
+    if len(prompt) > _PROMPT_WARN_CHARS:
+        logger.warning(
+            "test-generation prompt is %d chars (threshold %d); "
+            "consider a smaller source file or shorter llm_summary",
+            len(prompt),
+            _PROMPT_WARN_CHARS,
+        )
+    return prompt

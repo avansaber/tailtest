@@ -5,6 +5,26 @@ All notable changes to tailtest will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-12
+
+### Added (Phase 8 -- context-aware test generation)
+- **Context-aware test generation.** `/tailtest:gen <file>` now AST-scans the source for domain vocabulary before writing a single test. Enum subclasses, named exception classes, typed function signatures, and auth-pattern decorators are extracted and wired into the generator prompt as explicit instructions ("for `InvoiceStatus`, generate at least one state-transition test").
+- **`ast_signals.py`** -- new module at `src/tailtest/core/generator/ast_signals.py`. Exports `DomainSignals` (frozen dataclass), `extract_domain_signals()` (Python AST + JS/TS regex; never executes source), `build_category_hints()` (6 conditions, capped at 5), `build_detection_note()` (4-priority branches), `cluster_domain_from_source_tree()` (vibe-coded path: groups sibling function names by prefix to find the dominant domain cluster).
+- **`ProjectContext` dataclass** in `prompts.py`. Carries `llm_summary`, `primary_language`, `runner`, `framework_category`, `likely_vibe_coded`, `tests_dirs` from the deep scanner's `profile.json`. Loaded silently; returns `None` if `profile.json` is absent (zero-config promise preserved).
+- **`## Project context` prompt section.** When `profile.json` exists, the generator prompt gains a compact block: domain summary (max 300 chars), language, runner, framework category, and (on vibe-coded projects) the dominant function-name cluster from sibling files.
+- **`## Domain signals` prompt section.** Enum names, exception names, key class names, and public function signatures rendered directly in the prompt so Claude names real types in generated tests.
+- **`## Existing test style (sample)` prompt section.** First 30 lines of the nearest existing test file (sibling-first, then most-recently-modified in `tests_dirs`), hard-capped at 1,200 chars. Generated tests match the project's parametrize vs. flat-function vs. `pytest.raises` conventions.
+- **`## What to generate` prompt section.** Up to 5 targeted instructions derived from domain signals ("for `CreditLimitExceeded`, generate at least one test that asserts it is raised").
+- **Detection note on line 2** of every generated file. Four priority branches: user-supplied `--context` description > AST-detected entity names > deep-scan project summary > generic fallback. Examples: `# tailtest detected: InvoiceStatus, CreditLimitExceeded -- review before committing`.
+- **`--context` flag** on `/tailtest:gen`. Pass `--context "description"` (max 300 chars) to override automatic domain detection. The description appears in the detection note and in the generator prompt. Enforced in the MCP tool with a 300-char validation error.
+- **Token budget guard.** Before sending to Claude, the prompt is measured against a 7,500-char warning threshold. Optional sections are stripped in order (style sample → domain signals + cluster → category hints) until under budget. Mandatory sections (source file, project context header, generation instructions) are never removed.
+- **76 new tests** (1168 total, was 1092 at v0.1.1). New test files: `tests/test_ast_signals.py` (51 tests), additions to `tests/test_generator.py` (18 tests), `tests/test_mcp_tools.py` (2 tests), `tests/test_sanity.py` (1 version update).
+
+### Fixed
+- **Detection note empty entities.** When a source file had only function signatures (no enums/exceptions/class definitions), `build_detection_note` produced `"# tailtest detected:  -- review before committing"` (empty middle). Fixed: falls back to function names from `public_function_signatures` when the named-entity list is empty. Regression test added.
+
+---
+
 ## [0.1.1] - 2026-04-11
 
 ### Added (Phase 7 launch polish)
