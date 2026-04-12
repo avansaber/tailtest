@@ -22,7 +22,7 @@ def test_package_imports() -> None:
     """The top-level package must import without errors."""
     import tailtest
 
-    assert tailtest.__version__ == "0.4.0"
+    assert tailtest.__version__ == "0.4.1"
 
 
 def test_version_matches_pyproject() -> None:
@@ -92,7 +92,7 @@ def test_plugin_manifest_valid_json() -> None:
     manifest = json.loads(manifest_path.read_text())
 
     assert manifest["name"] == "tailtest"
-    assert manifest["version"] == "0.1.1"
+    assert manifest["version"] == "0.4.1"
     assert "description" in manifest
     assert manifest["license"] == "Apache-2.0"
 

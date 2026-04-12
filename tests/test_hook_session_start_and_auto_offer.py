@@ -65,9 +65,7 @@ async def test_run_empty_project_emits_ready_message(tmp_path: Path) -> None:
     result = await session_start_run('{"session_id": "s1"}', project_root=tmp_path)
     assert isinstance(result, SessionStartResult)
     assert result.stdout_json is not None
-    envelope = json.loads(result.stdout_json)
-    assert envelope["hookSpecificOutput"]["hookEventName"] == "SessionStart"
-    message = envelope["hookSpecificOutput"]["additionalContext"]
+    message = result.stdout_json  # SessionStart outputs plain text, not JSON
     assert "ready" in message.lower()
     assert "code to test" in message.lower()
 
@@ -82,8 +80,7 @@ async def test_run_python_project_emits_init_message(tmp_path: Path) -> None:
     (tmp_path / "tests" / "test_pkg.py").write_text("def test_placeholder():\n    assert True\n")
 
     result = await session_start_run('{"session_id": "s1"}', project_root=tmp_path)
-    envelope = json.loads(result.stdout_json or "{}")
-    message = envelope["hookSpecificOutput"]["additionalContext"]
+    message = result.stdout_json or ""  # SessionStart outputs plain text
     assert "python" in message.lower()
     assert "initialized" in message.lower() or "mode" in message.lower()
     assert "/tailtest:status" in message
@@ -148,9 +145,7 @@ async def test_run_resets_session_state_on_new_session(tmp_path: Path) -> None:
 async def test_run_handles_missing_session_id_gracefully(tmp_path: Path) -> None:
     """An empty stdin still produces a valid envelope."""
     result = await session_start_run("", project_root=tmp_path)
-    assert result.stdout_json is not None
-    envelope = json.loads(result.stdout_json)
-    assert envelope["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+    assert result.stdout_json is not None  # SessionStart outputs plain text
 
 
 # --- Auto-offer integration in PostToolUse run() ----------------------
@@ -191,7 +186,7 @@ async def test_auto_offer_surfaces_uncovered_function(tmp_path: Path) -> None:
     result = await post_tool_use_run(payload, project_root=tmp_path)
     assert result.stdout_json is not None
     envelope = json.loads(result.stdout_json)
-    context = envelope["hookSpecificOutput"]["additionalContext"]
+    context = envelope["additionalContext"]
     # `multiply` is the uncovered function; `add` already has a test.
     assert "multiply" in context
     assert "/tailtest:gen" in context
@@ -210,14 +205,12 @@ async def test_auto_offer_debounced_in_same_session(tmp_path: Path) -> None:
         }
     )
     first = await post_tool_use_run(payload, project_root=tmp_path)
-    first_context = json.loads(first.stdout_json or "{}")["hookSpecificOutput"]["additionalContext"]
+    first_context = json.loads(first.stdout_json or "{}")["additionalContext"]
     assert "multiply" in first_context
 
     # Second call with the same session id should NOT re-offer multiply.
     second = await post_tool_use_run(payload, project_root=tmp_path)
-    second_context = json.loads(second.stdout_json or "{}")["hookSpecificOutput"][
-        "additionalContext"
-    ]
+    second_context = json.loads(second.stdout_json or '{"additionalContext": ""}')["additionalContext"]
     assert "multiply" not in second_context
 
 
@@ -246,9 +239,7 @@ async def test_auto_offer_re_fires_on_new_session(tmp_path: Path) -> None:
         }
     )
     second = await post_tool_use_run(second_payload, project_root=tmp_path)
-    second_context = json.loads(second.stdout_json or "{}")["hookSpecificOutput"][
-        "additionalContext"
-    ]
+    second_context = json.loads(second.stdout_json or '{"additionalContext": ""}')["additionalContext"]
     assert "multiply" in second_context
 
 
@@ -270,7 +261,7 @@ async def test_auto_offer_suppressed_by_config_flag(tmp_path: Path) -> None:
         }
     )
     result = await post_tool_use_run(payload, project_root=tmp_path)
-    context = json.loads(result.stdout_json or "{}")["hookSpecificOutput"]["additionalContext"]
+    context = json.loads(result.stdout_json or "{}")["additionalContext"]
     assert "multiply" not in context
     assert "/tailtest:gen" not in context
 
@@ -304,7 +295,7 @@ async def test_auto_offer_caps_at_3_suggestions(tmp_path: Path) -> None:
         }
     )
     result = await post_tool_use_run(payload, project_root=tmp_path)
-    context = json.loads(result.stdout_json or "{}")["hookSpecificOutput"]["additionalContext"]
+    context = json.loads(result.stdout_json or "{}")["additionalContext"]
     # Count how many /tailtest:gen suggestions appear.
     count = context.count("/tailtest:gen")
     assert count == 3

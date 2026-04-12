@@ -205,15 +205,15 @@ def test_format_additional_context_green_run_returns_json_envelope() -> None:
     batch = _fake_batch()
     out = _format_additional_context(batch, manifest_rescanned=False)
     envelope = json.loads(out)
-    assert envelope["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
-    assert "5/5 tests passed" in envelope["hookSpecificOutput"]["additionalContext"]
+    assert ("additionalContext" in envelope)
+    assert "5/5 tests passed" in envelope["additionalContext"]
 
 
 def test_format_additional_context_includes_manifest_rescan_note() -> None:
     batch = _fake_batch()
     out = _format_additional_context(batch, manifest_rescanned=True)
     envelope = json.loads(out)
-    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    ctx = envelope["additionalContext"]
     assert "manifest rescan" in ctx
 
 
@@ -231,7 +231,7 @@ def test_format_additional_context_includes_findings() -> None:
     batch = _fake_batch(findings=[finding], summary="tailtest: 4/5 tests passed, 1 failed")
     out = _format_additional_context(batch, manifest_rescanned=False)
     envelope = json.loads(out)
-    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    ctx = envelope["additionalContext"]
     assert "1 failed" in ctx
     assert "tests/test_foo.py:15" in ctx
     assert "assert 1 == 2" in ctx
@@ -254,7 +254,7 @@ def test_format_additional_context_truncates_to_top_5_findings() -> None:
     batch = _fake_batch(findings=findings, summary="tailtest: 0/10 tests passed")
     out = _format_additional_context(batch, manifest_rescanned=False)
     envelope = json.loads(out)
-    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    ctx = envelope["additionalContext"]
     # Should mention the 5 truncation footer.
     assert "5 more findings" in ctx
     assert "latest.json" in ctx
@@ -349,7 +349,7 @@ async def test_run_skips_when_all_changes_are_test_files(tmp_path: Path) -> None
 
 @pytest.mark.asyncio
 async def test_run_end_to_end_reports_failure(tmp_path: Path) -> None:
-    """Hook runs impacted tests and emits a hookSpecificOutput JSON envelope."""
+    """Hook runs impacted tests and emits an additionalContext JSON envelope."""
     changed = _make_minimal_python_fixture(tmp_path)
     payload = json.dumps({"tool_name": "Edit", "tool_input": {"file_path": str(changed)}})
     result = await run(payload, project_root=tmp_path)
@@ -357,8 +357,8 @@ async def test_run_end_to_end_reports_failure(tmp_path: Path) -> None:
     # The fixture has a failing test, so the hook must emit a response.
     assert result.stdout_json is not None, result.reason
     envelope = json.loads(result.stdout_json)
-    assert envelope["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
-    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    assert ("additionalContext" in envelope)
+    ctx = envelope["additionalContext"]
     assert "test" in ctx.lower()
     # Persisted latest report exists.
     assert (tmp_path / ".tailtest" / "reports" / "latest.json").exists()
@@ -986,7 +986,7 @@ async def test_run_end_to_end_merges_security_findings(tmp_path: Path, monkeypat
 
     assert result.stdout_json is not None, result.reason
     envelope = json.loads(result.stdout_json)
-    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    ctx = envelope["additionalContext"]
     # Summary reflects the security count and the total duration.
     assert "2 new security issues" in ctx
     # The scanners were actually invoked.
@@ -1013,7 +1013,7 @@ async def test_run_end_to_end_skips_security_on_test_failure(tmp_path: Path, mon
 
     assert result.stdout_json is not None, result.reason
     envelope = json.loads(result.stdout_json)
-    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    ctx = envelope["additionalContext"]
     # Security findings should NOT appear when tests failed.
     assert "security" not in ctx.lower()
     assert _StubGitleaks.calls == []
@@ -1152,7 +1152,7 @@ def test_format_additional_context_includes_validator_findings() -> None:
         validator_batch=vbatch,
     )
     envelope = json.loads(ctx_json)
-    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    ctx = envelope["additionalContext"]
     assert "validator" in ctx.lower()
     assert "Possible null deref" in ctx
     assert "guard" in ctx  # reasoning snippet
@@ -1162,7 +1162,7 @@ def test_format_additional_context_no_validator_batch() -> None:
     batch = FindingBatch(run_id="r1", depth="standard", summary_line="tailtest: ok")
     ctx_json = _format_additional_context(batch, manifest_rescanned=False)
     envelope = json.loads(ctx_json)
-    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    ctx = envelope["additionalContext"]
     assert "validator" not in ctx
 
 
@@ -1265,7 +1265,7 @@ def test_format_additional_context_includes_redteam_findings() -> None:
         redteam_batch=rbatch,
     )
     envelope = json.loads(ctx_json)
-    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    ctx = envelope["additionalContext"]
     assert "red-team" in ctx.lower()
     assert "prompt_injection" in ctx
     assert "No input validation present" in ctx
@@ -1275,5 +1275,5 @@ def test_format_additional_context_no_redteam_batch() -> None:
     batch = FindingBatch(run_id="r1", depth="standard", summary_line="tailtest: ok")
     ctx_json = _format_additional_context(batch, manifest_rescanned=False)
     envelope = json.loads(ctx_json)
-    ctx = envelope["hookSpecificOutput"]["additionalContext"]
+    ctx = envelope["additionalContext"]
     assert "red-team" not in ctx

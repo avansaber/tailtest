@@ -30,10 +30,9 @@ from tailtest.hook.session_start import run as session_start_run
 
 
 def _get_context(result_stdout_json: str | None) -> str:
-    """Extract additionalContext from the hook output JSON."""
+    """Return the SessionStart plain-text output."""
     assert result_stdout_json is not None
-    envelope = json.loads(result_stdout_json)
-    return envelope["hookSpecificOutput"]["additionalContext"]
+    return result_stdout_json  # SessionStart outputs plain text, not JSON
 
 
 def _make_python_project(tmp_path: Path) -> None:

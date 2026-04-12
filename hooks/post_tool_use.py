@@ -78,12 +78,16 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         stdin_text = ""
 
-    # Import deferred so unit tests of the library do not pay the
-    # import cost for every shim invocation and so a broken library
-    # does not crash the shim at import time.
-    from tailtest.hook.post_tool_use import run
-
     try:
+        # Import deferred so unit tests of the library do not pay the
+        # import cost for every shim invocation and so a broken library
+        # does not crash the shim at import time.
+        # Import is INSIDE the try/except so any ImportError (e.g. stale
+        # plugin cache missing _register_all_runners) exits 0 rather than
+        # producing a traceback and a non-zero exit that Claude Code displays
+        # as a "hook error". The broken state surfaces in tailtest doctor.
+        from tailtest.hook.post_tool_use import run
+
         result = asyncio.run(run(stdin_text, project_root=Path.cwd()))
     except Exception:  # noqa: BLE001
         # The hot loop must never block Claude's next turn. On any

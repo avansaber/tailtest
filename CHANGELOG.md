@@ -5,6 +5,16 @@ All notable changes to tailtest will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-04-12
+
+### Fixed
+- **SessionStart hook was silent.** Per the Claude Code hooks guide, `SessionStart` hook output must be plain text on stdout -- not a `hookSpecificOutput` JSON envelope. We were wrapping the message in `{"hookSpecificOutput": {"hookEventName": "SessionStart", ...}}`, which Claude Code silently ignored. Now `session_start.py` emits the status string directly.
+- **PostToolUse hook output was ignored.** `additionalContext` must be a top-level key -- `{"additionalContext": "..."}` -- not nested under `hookSpecificOutput`. Both the source and all tests updated.
+- **PostToolUse shim crashes on import error (non-zero exit).** `from tailtest.hook.post_tool_use import run` was outside the `try/except` block in the shim. Any `ImportError` (e.g. stale plugin cache missing `_register_all_runners`) produced a traceback and a non-zero exit code that Claude Code surfaced as "hook error". Import now lives inside the broad `except Exception: return 0` guard.
+- **Bootstrap checks wrong submodule.** `can_import_tailtest_hook()` tested `import tailtest.hook` (`__init__` only). The `__init__` can succeed while `tailtest.hook.post_tool_use` fails (heavy deps). Now checks the submodule that is actually imported.
+
+---
+
 ## [0.4.0] - 2026-04-12
 
 ### Fixed

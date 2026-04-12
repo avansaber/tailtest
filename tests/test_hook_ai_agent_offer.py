@@ -249,7 +249,7 @@ def test_format_additional_context_includes_ai_checks_note() -> None:
         ai_checks_note="tailtest: AI checks active (thorough depth). LLM-judge assertions will run on agent outputs.",
     )
     data = json.loads(output_json)
-    ctx = data["hookSpecificOutput"]["additionalContext"]
+    ctx = data["additionalContext"]
     assert "AI checks active" in ctx
 
 
@@ -261,7 +261,7 @@ def test_format_additional_context_no_ai_checks_note_when_none() -> None:
         ai_checks_note=None,
     )
     data = json.loads(output_json)
-    ctx = data["hookSpecificOutput"]["additionalContext"]
+    ctx = data["additionalContext"]
     assert "AI checks" not in ctx
 
 
@@ -310,8 +310,7 @@ async def test_run_ai_agent_first_session_offer_in_output(tmp_path: Path) -> Non
         result = await session_start_run('{"session_id": "s1"}', project_root=tmp_path)
 
     assert result.stdout_json is not None
-    envelope = json.loads(result.stdout_json)
-    context = envelope["hookSpecificOutput"]["additionalContext"]
+    context = result.stdout_json  # SessionStart outputs plain text
 
     # The AI offer must appear in the message.
     assert "AI agent detected" in context
@@ -364,8 +363,7 @@ async def test_run_ai_agent_second_session_no_offer(tmp_path: Path) -> None:
         result = await session_start_run('{"session_id": "s2"}', project_root=tmp_path)
 
     assert result.stdout_json is not None
-    envelope = json.loads(result.stdout_json)
-    context = envelope["hookSpecificOutput"]["additionalContext"]
+    context = result.stdout_json  # SessionStart outputs plain text
 
     # The offer must NOT appear when the flag already exists.
     assert "AI agent detected" not in context

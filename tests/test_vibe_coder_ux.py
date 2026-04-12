@@ -99,8 +99,7 @@ async def test_session_start_vibe_coded_uses_warmer_phrasing(tmp_path: Path) -> 
         result = await session_start_run('{"session_id": "s1"}', project_root=tmp_path)
 
     assert result.stdout_json is not None
-    envelope = json.loads(result.stdout_json)
-    message = envelope["hookSpecificOutput"]["additionalContext"]
+    message = result.stdout_json  # SessionStart outputs plain text
     assert "ready to help you test this" in message
     assert "/tailtest setup" in message
 
@@ -128,8 +127,7 @@ async def test_session_start_non_vibe_coded_uses_neutral_phrasing(tmp_path: Path
         result = await session_start_run('{"session_id": "s2"}', project_root=tmp_path)
 
     assert result.stdout_json is not None
-    envelope = json.loads(result.stdout_json)
-    message = envelope["hookSpecificOutput"]["additionalContext"]
+    message = result.stdout_json  # SessionStart outputs plain text
     assert "ready to help you test this" not in message
     assert "initialized in" in message
 
@@ -168,8 +166,7 @@ async def test_session_start_none_vibe_coded_uses_neutral_phrasing(tmp_path: Pat
         result = await session_start_run('{"session_id": "s3"}', project_root=tmp_path)
 
     assert result.stdout_json is not None
-    envelope = json.loads(result.stdout_json)
-    message = envelope["hookSpecificOutput"]["additionalContext"]
+    message = result.stdout_json  # SessionStart outputs plain text
     assert "ready to help you test this" not in message
 
 
@@ -243,7 +240,7 @@ async def test_post_tool_use_vibe_coded_py_no_tests_shows_gen_offer(tmp_path: Pa
 
     assert result.stdout_json is not None
     envelope = json.loads(result.stdout_json)
-    context = envelope["hookSpecificOutput"]["additionalContext"]
+    context = envelope["additionalContext"]
     assert "no tests found for this function" in context
     assert "/tailtest:gen" in context
 
@@ -298,7 +295,7 @@ async def test_post_tool_use_vibe_coded_py_with_tests_no_gen_offer(tmp_path: Pat
 
     assert result.stdout_json is not None
     envelope = json.loads(result.stdout_json)
-    context = envelope["hookSpecificOutput"]["additionalContext"]
+    context = envelope["additionalContext"]
     assert "no tests found for this function" not in context
 
 
@@ -349,7 +346,7 @@ async def test_post_tool_use_non_vibe_coded_no_gen_offer(tmp_path: Path) -> None
 
     assert result.stdout_json is not None
     envelope = json.loads(result.stdout_json)
-    context = envelope["hookSpecificOutput"]["additionalContext"]
+    context = envelope["additionalContext"]
     assert "no tests found for this function" not in context
 
 
@@ -401,7 +398,7 @@ async def test_post_tool_use_gen_offer_fires_once_per_file(tmp_path: Path) -> No
             payload = _make_post_tool_use_payload(str(src_file))
             result = await ptu_module.run(payload, project_root=tmp_path)
             assert result.stdout_json is not None
-            return json.loads(result.stdout_json)["hookSpecificOutput"]["additionalContext"]
+            return json.loads(result.stdout_json)["additionalContext"]
 
     # First call: offer fires
     context1 = await _run_once()

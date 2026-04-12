@@ -20,7 +20,7 @@ Task 1.6 spec:
 6. Reset the session-state.json file for the new session so the
    auto-offer debounce cache does not carry offers from a prior
    session. This also writes the new session_id to the state file.
-7. Emit a single-line ``hookSpecificOutput`` / ``additionalContext``
+7. Emit a single-line plain-text message to stdout (Claude Code's
    envelope describing what tailtest sees and what depth mode is in
    effect.
 
@@ -59,7 +59,7 @@ class SessionStartResult:
     """Return value of the SessionStart runtime.
 
     ``stdout_json`` is the JSON string the shim should print (the
-    hookSpecificOutput envelope), or None if the hook should emit
+    plain text to print to stdout), or None if the hook should emit
     nothing. ``reason`` is a diagnostic for logs.
     """
 
@@ -201,13 +201,10 @@ async def run(
         if ai_offer and len(message.encode("utf-8")) < 1800:
             message = f"{message}\n{ai_offer}"
 
-    envelope = {
-        "hookSpecificOutput": {
-            "hookEventName": "SessionStart",
-            "additionalContext": message,
-        }
-    }
-    return SessionStartResult(stdout_json=json.dumps(envelope), reason=scan_status)
+    # SessionStart hooks: plain text stdout goes directly to Claude's context
+    # (per Claude Code hooks guide). hookSpecificOutput is for permission
+    # decisions only -- wrapping in it causes the output to be silently ignored.
+    return SessionStartResult(stdout_json=message, reason=scan_status)
 
 
 # --- Helpers ------------------------------------------------------------

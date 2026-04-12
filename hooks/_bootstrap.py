@@ -44,14 +44,17 @@ _INSTALL_DOC_URL = "https://github.com/avansaber/tailtest/blob/main/docs/install
 
 
 def can_import_tailtest_hook() -> bool:
-    """Return True iff ``import tailtest.hook`` succeeds in this process.
+    """Return True iff the full tailtest hook stack can be imported.
 
-    Used by ``bootstrap_or_die`` to decide whether a re-exec is
-    necessary. Imports lazily so callers don't pay the cost when
-    the bootstrap path is not needed.
+    Checks ``tailtest.hook.post_tool_use`` (the heavy submodule with all
+    runner and security deps) rather than just ``tailtest.hook`` (__init__
+    only). The __init__ may succeed while a submodule fails if, for example,
+    the plugin cache has old source that is missing _register_all_runners.
+    Catching the deeper import avoids a false-positive bootstrap that lets
+    the shim crash later with an uncaught ImportError.
     """
     try:
-        import tailtest.hook  # noqa: F401
+        import tailtest.hook.post_tool_use  # noqa: F401
     except ImportError:
         return False
     return True

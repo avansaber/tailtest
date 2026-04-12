@@ -56,7 +56,7 @@ def test_can_import_returns_false_on_import_error(monkeypatch) -> None:
     real_import = __import__
 
     def fake_import(name, *args, **kwargs):
-        if name == "tailtest.hook":
+        if name == "tailtest.hook.post_tool_use":
             raise ImportError("simulated missing tailtest")
         return real_import(name, *args, **kwargs)
 

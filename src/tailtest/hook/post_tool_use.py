@@ -132,7 +132,7 @@ class HookResult:
     """What the hook runtime returns to the repo-root shim.
 
     ``stdout_json`` is either the JSON string the shim should print
-    (the ``hookSpecificOutput`` envelope) or ``None`` when the hook
+    (the ``additionalContext`` JSON envelope) or ``None`` when the hook
     decided to emit nothing. ``reason`` is a short diagnostic the
     shim can optionally log for debugging; it is never surfaced to
     Claude.
@@ -957,7 +957,7 @@ def _format_additional_context(
     validator_batch: FindingBatch | None = None,
     redteam_batch: FindingBatch | None = None,
 ) -> str:
-    """Build the hookSpecificOutput JSON payload for Claude's next turn.
+    """Build the additionalContext JSON payload for Claude's next turn.
 
     Format:
     - ``summary_line`` always present (the one-liner the terminal
@@ -1061,13 +1061,7 @@ def _format_additional_context(
     additional_context = "\n".join(lines)
     additional_context = _truncate(additional_context)
 
-    envelope = {
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "additionalContext": additional_context,
-        }
-    }
-    return json.dumps(envelope)
+    return json.dumps({"additionalContext": additional_context})
 
 
 def _should_invoke_validator(config: Config, batch: FindingBatch) -> bool:

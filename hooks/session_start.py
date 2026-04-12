@@ -65,9 +65,9 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         stdin_text = ""
 
-    from tailtest.hook.session_start import run
-
     try:
+        from tailtest.hook.session_start import run
+
         result = asyncio.run(run(stdin_text, project_root=Path.cwd()))
     except Exception:  # noqa: BLE001
         return 0
