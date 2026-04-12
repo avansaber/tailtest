@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
 """SessionStart hook entry point (thin shim, Phase 1 Task 1.6).
 
 Claude Code's plugin runtime launches this script once at the start

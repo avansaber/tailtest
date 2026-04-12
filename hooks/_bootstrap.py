@@ -1,3 +1,5 @@
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
 """Shared bootstrap for tailtest hook shims (Phase 7 Task 7.4a).
 
 When Claude Code invokes a tailtest hook, the shim runs against

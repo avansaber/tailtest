@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 AvanSaber Inc.
+# SPDX-License-Identifier: Apache-2.0
 """PostToolUse hook entry point (thin shim, Phase 1 Task 1.5).
 
 Claude Code's plugin runtime launches this script as a subprocess on
