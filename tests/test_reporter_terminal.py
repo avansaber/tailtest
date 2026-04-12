@@ -93,6 +93,25 @@ def test_summary_line_no_tests_no_findings() -> None:
     assert "clean" in out
 
 
+def test_summary_line_uses_summary_line_on_timeout() -> None:
+    """When runner sets summary_line (e.g. timeout), it is shown instead of 'clean'.
+
+    Regression test for the Ubuntu smoke test Finding 2: pytest timed out but
+    the terminal rendered 'tailtest: clean' because _format_summary ignored
+    batch.summary_line entirely.
+    """
+    reporter = TerminalReporter(use_color=False)
+    batch = FindingBatch(
+        run_id="r-timeout",
+        depth="standard",
+        duration_ms=30000.0,
+        summary_line="tailtest: pytest timed out at 30.0s",
+    )
+    out = reporter.format(batch)
+    assert "timed out" in out
+    assert "clean" not in out
+
+
 # --- Finding detail -------------------------------------------------------
 
 

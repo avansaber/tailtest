@@ -193,7 +193,11 @@ class TerminalReporter:
         components.append(depth_part)
 
         if not tests_part and not findings_part:
-            if has_failures:
+            if batch.summary_line:
+                # Runner already composed a one-line status (e.g. timeout message).
+                # Use it verbatim instead of the generic "clean" label.
+                return batch.summary_line
+            elif has_failures:
                 components.insert(1, f"{self._c.red}findings{self._c.reset}")
             else:
                 components.insert(1, f"{self._c.green}clean{self._c.reset}")

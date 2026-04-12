@@ -4,7 +4,7 @@
 
 tailtest watches every edit your AI agent makes inside Claude Code, runs the tests that matter, scans for security issues that matter, and feeds findings back into Claude's next turn so the agent can fix them in the same session. The hot loop never blocks your work.
 
-**Current release:** [v0.2.0](https://github.com/avansaber/tailtest/releases/tag/v0.2.0) — Phase 8 (context-aware test generation) shipped. The generator now AST-scans source files for domain vocabulary and produces tests that know about your enums, exception hierarchy, and typed function signatures.
+**Current release:** [v0.4.0](https://github.com/avansaber/tailtest/releases/tag/v0.4.0) — bug fix release. Fixes terminal showing "clean" when pytest times out; fixes "no runners detected" when the binary is simply missing; bumps PyPI version above v1 shadow (was 0.2.0, v1 was 0.3.1).
 
 ## Quickstart (5 minutes)
 
@@ -98,7 +98,7 @@ Phase 1 configs (with `sast: true/false` as plain bools) keep parsing — the lo
 
 ## What tailtest does NOT do (yet)
 
-Current limitations in v0.2.0:
+Current limitations in v0.4.0:
 
 - No multi-language SCA beyond Python + JS. Go / Rust / Java on the roadmap.
 - No EPSS / KEV / NVD severity enrichment for SCA findings.
@@ -113,7 +113,7 @@ tailtest/
 ├── hooks/                       PostToolUse / SessionStart hook shims
 ├── skills/                      User-invocable slash commands
 ├── src/tailtest/                Python package source
-├── tests/                       Pytest suite (1166 tests)
+├── tests/                       Pytest suite (1169 tests)
 ├── pyproject.toml
 ├── README.md                    This file
 ├── LICENSE                      Apache 2.0
@@ -123,7 +123,7 @@ tailtest/
 
 ## Contributing
 
-The project is in active development through Phase 8. The current release is `v0.2.0`. The issue tracker on [github.com/avansaber/tailtest](https://github.com/avansaber/tailtest) is open for bug reports and feature requests. PRs are reviewed but the bar for accepting external code is high while the architecture is still moving.
+The project is in active development through Phase 8. The current release is `v0.4.0`. The issue tracker on [github.com/avansaber/tailtest](https://github.com/avansaber/tailtest) is open for bug reports and feature requests. PRs are reviewed but the bar for accepting external code is high while the architecture is still moving.
 
 ## License
 

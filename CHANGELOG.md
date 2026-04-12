@@ -5,6 +5,15 @@ All notable changes to tailtest will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-12
+
+### Fixed
+- **Terminal says "clean" when pytest times out.** `_format_summary()` in `TerminalReporter` now checks `batch.summary_line` before falling back to the generic "clean" label. When a runner sets a timeout message (e.g. `"tailtest: pytest timed out at 30.0s"`), that message is shown verbatim. Caught by the Ubuntu server smoke test (Task 7.10). Regression test added.
+- **"No runners detected" when binary is missing.** `tailtest run` now distinguishes between "no test config found" and "config found but runner binary missing". When a runner sees config (pytest.ini / pyproject.toml `[tool.pytest.ini_options]`) but the `pytest` binary is absent, the error now reads `"tailtest: pytest: pytest not found in project venv or on PATH"` instead of the generic "no runners detected". Implemented via `RunnerRegistry.unavailable_reasons()`. Regression test added.
+- **PyPI version shadowing.** v1 of tailtest (tailtester) was at `0.3.1`; pip always resolved to v1. Bumped v2 to `0.4.0` so `pip install tailtester` installs the correct package.
+
+---
+
 ## [0.2.0] - 2026-04-12
 
 ### Added (Phase 8 -- context-aware test generation)

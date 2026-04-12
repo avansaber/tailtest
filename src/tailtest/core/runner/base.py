@@ -212,6 +212,22 @@ class RunnerRegistry:
                 logger.debug("%s skipped: %s", runner_cls.__name__, exc)
         return result
 
+    def unavailable_reasons(self, project_root: Path) -> dict[str, str]:
+        """Return reasons why runners raised RunnerNotAvailable for the project.
+
+        Maps runner name -> reason string for every runner whose ``discover()``
+        raised ``RunnerNotAvailable`` (configured but binary/tool missing).
+        Runners that simply returned ``False`` (no config found) are excluded.
+        """
+        reasons: dict[str, str] = {}
+        for runner_cls in self._runners.values():
+            runner = runner_cls(project_root)
+            try:
+                runner.discover()
+            except RunnerNotAvailable as exc:
+                reasons[runner_cls.name] = str(exc)
+        return reasons
+
     def registered_languages(self) -> list[str]:
         return sorted(self._runners.keys())
 

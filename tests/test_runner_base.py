@@ -162,6 +162,45 @@ def test_registry_skips_runner_that_raises_not_available(tmp_path: Path) -> None
         FakePythonRunner.discover_return = True
 
 
+def test_registry_unavailable_reasons(tmp_path: Path) -> None:
+    """unavailable_reasons() collects RunnerNotAvailable messages without hiding them.
+
+    Regression test for Ubuntu smoke test Finding 3: when a runner binary is
+    missing the registry swallowed RunnerNotAvailable silently, causing run.py
+    to print 'no runners detected' with no hint about what was actually wrong.
+    """
+    class ConfiguredButMissingBinary(BaseRunner):
+        name: ClassVar[str] = "fake-missing"
+        language: ClassVar[str] = "python-missing-fake"
+
+        def discover(self) -> bool:
+            # Simulates a runner that sees pytest.ini but can't find the binary.
+            raise RunnerNotAvailable("pytest not found in project venv or on PATH")
+
+        async def impacted(self, files: list[Path], diff: str | None = None) -> list[_TestID]:
+            return []
+
+        async def run(
+            self,
+            test_ids: list[_TestID],
+            *,
+            run_id: str,
+            timeout_seconds: float = 30.0,
+        ) -> FindingBatch:
+            return FindingBatch(run_id=run_id, depth="quick")
+
+    registry = RunnerRegistry()
+    registry.register(ConfiguredButMissingBinary)
+
+    # all_for_project returns empty (runner is unavailable)
+    assert registry.all_for_project(tmp_path) == []
+
+    # but unavailable_reasons reports WHY
+    reasons = registry.unavailable_reasons(tmp_path)
+    assert "fake-missing" in reasons
+    assert "pytest not found" in reasons["fake-missing"]
+
+
 def test_register_runner_decorator_uses_default_registry() -> None:
     """The @register_runner decorator adds to the process-wide registry."""
 

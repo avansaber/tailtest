@@ -134,7 +134,15 @@ def run_cmd(
     registry = get_default_registry()
     runners = registry.all_for_project(root)
     if not runners:
+        # Distinguish "no config found" from "config found but binary missing".
+        unavailable = registry.unavailable_reasons(root)
         if output_format == _FORMAT_JSON:
+            if unavailable:
+                summary = "tailtest: " + "; ".join(
+                    f"{name}: {reason}" for name, reason in unavailable.items()
+                )
+            else:
+                summary = "tailtest: no runners detected for this project"
             click.echo(
                 json_lib.dumps(
                     {
@@ -143,15 +151,20 @@ def run_cmd(
                         "findings": [],
                         "tests_passed": 0,
                         "tests_failed": 0,
-                        "summary_line": "tailtest: no runners detected for this project",
+                        "summary_line": summary,
                     },
                     indent=2,
                 )
             )
         else:
-            click.echo(
-                "tailtest: no runners detected for this project. Run `tailtest doctor` to debug."
-            )
+            if unavailable:
+                for name, reason in unavailable.items():
+                    click.echo(f"tailtest: {name}: {reason}")
+                click.echo("Run `tailtest doctor` to debug.")
+            else:
+                click.echo(
+                    "tailtest: no runners detected for this project. Run `tailtest doctor` to debug."
+                )
         sys.exit(0)
 
     runner = runners[0]
