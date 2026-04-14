@@ -11,7 +11,7 @@ When everything passes, tailtest is silent. When something fails, it shows you o
 ## Install
 
 ```
-/plugin install avansaber/tailtest
+claude plugin add avansaber/tailtest
 ```
 
 Restart Claude Code after install. No other setup required.
@@ -61,6 +61,23 @@ fixtures/
 
 ---
 
+## Supported languages
+
+| Language | Runner | Test style |
+|---|---|---|
+| Python | pytest | `tests/test_{name}.py` |
+| TypeScript | vitest / jest | `__tests__/{name}.test.ts` |
+| JavaScript | vitest / jest | `__tests__/{name}.test.js` |
+| Go | go test | co-located `{name}_test.go` |
+| Ruby | rspec / minitest | `spec/{name}_spec.rb` or `test/{name}_test.rb` |
+| PHP (Laravel) | phpunit | `tests/Feature/` or `tests/Unit/` |
+| Java | Maven / Gradle | `src/test/java/{Name}Test.java` |
+| Rust | cargo test | inline `#[cfg(test)]` module |
+
+For languages that require an explicit test runner (Go, Ruby, PHP, Java, Rust), tailtest is silent when no runner is detected -- it does not generate tests for bare script projects.
+
+---
+
 ## Session state
 
 tailtest writes `.tailtest/session.json` during each Claude Code session. This file tracks pending files, runner detection results, and fix attempt counts. It is gitignored automatically.
@@ -69,12 +86,23 @@ Schema: [`hooks/session.schema.json`](hooks/session.schema.json)
 
 ---
 
+## Monorepo support
+
+tailtest automatically detects monorepo layouts (pnpm workspaces, Nx, Turborepo, Lerna, Rush, or multiple package.json/pyproject.toml files at subdirectory roots).
+
+For each detected package, tailtest resolves the correct test runner and test location independently. Files in `packages/api/` use that package's runner; files in `packages/web/` use that package's runner. Files outside all packages fall back to the root runner if one is configured.
+
+No configuration needed. Detection is automatic at session start.
+
+---
+
 ## What tailtest does NOT do
 
 - Security scanning
 - Coverage percentages or delta tracking
 - HTML reports or dashboards
-- Standalone CLI -- this is a Claude Code plugin, not a command-line tool
+- Standalone CLI -- this is a Claude Code plugin only, not a command-line tool
+- Proactive scanning -- tailtest is reactive; it only processes files Claude actually edits in the current session
 
 ---
 
