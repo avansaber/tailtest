@@ -215,3 +215,32 @@ Track fix attempts in `.tailtest/session.json` under `fix_attempts: { "path/to/f
 - Reset the counter when the file passes.
 
 **Deferred failures:** when the user asks to fix only some failures and defers others, record deferred ones in `deferred_failures` in session.json. Do not resurface deferred failures in subsequent turns unless that file is edited again.
+
+---
+
+## Existing projects
+
+tailtest is reactive. It does not scan existing files or generate tests proactively. Coverage builds naturally as files are touched during development.
+
+**When the hook context says "existing file -- Do not generate new tests":**
+- Run the listed test file
+- Report failures only
+- Do not write or modify the test file unless the user explicitly asks
+
+**Before updating a legacy test file:** always read it first to understand its structure, helpers, and conventions. Never blindly overwrite existing tests.
+
+**Progressive coverage:** on the first session with a large existing codebase, tailtest will only surface tests for files you actually touch. This is by design -- cold generation on unfamiliar code creates noise, not signal.
+
+---
+
+## /t command
+
+When the user types `/t <file>` (or a variant like "tailtest <file>", "run tailtest on <file>"):
+
+1. Read the source file at `<file>`
+2. Generate scenarios (Step 3) -- treat the file as `new-file` regardless of git status
+3. Write or update the test file (Step 4) -- read the existing test first if one exists
+4. Run tests (Step 5)
+5. Report results (Step 6)
+
+This is the only way to trigger generation for a file that tailtest would normally skip (legacy file with no existing tests, or any file the user wants explicitly covered).
