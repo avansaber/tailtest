@@ -24,6 +24,12 @@ claude plugin marketplace update avansaber-tailtest
 claude plugin update tailtest@avansaber-tailtest
 ```
 
+## Uninstall
+
+```
+claude plugin remove tailtest@avansaber-tailtest
+```
+
 ---
 
 ## Documentation
