@@ -1,5 +1,8 @@
 # Changelog
 
+## v3.5.1 -- 2026-04-14
+Adds the `/summary` slash command. Type `/summary` at any point in a session to see which files were tested, where test files were written, and whether any failures were fixed, deferred, or remain unresolved. Also ships the full `docs/` reference (10 pages covering quickstart, architecture, all 8 languages, monorepo, configuration, session state, and troubleshooting) and corrects the install command documentation.
+
 ## v3.5.0 -- 2026-04-14
 Monorepo support. tailtest now detects pnpm workspaces, Nx, Turborepo, Lerna, and Rush layouts at session start. Files in sub-packages use that package's test runner and test location. Files outside all packages fall back to the root runner.
 
