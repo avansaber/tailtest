@@ -2,7 +2,7 @@
   "name": "avansaber-tailtest",
   "owner": {
     "name": "AvanSaber Inc.",
-    "email": "founder@avansaber.com"
+    "email": "support@avansaber.com"
   },
   "metadata": {
     "description": "Quietly generates and runs tests alongside your Claude Code session. Any language. No commands. No setup.",
@@ -17,7 +17,7 @@
       "version": "3.5.1",
       "author": {
         "name": "AvanSaber Inc.",
-        "email": "founder@avansaber.com",
+        "email": "support@avansaber.com",
         "url": "https://avansaber.com"
       },
       "homepage": "https://tailtest.com",
