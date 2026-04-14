@@ -88,6 +88,12 @@
       "additionalProperties": { "type": "integer", "minimum": 0 },
       "examples": [{ "services/billing.py": 1, "lib/pricing.ts": 2 }]
     },
+    "generated_tests": {
+      "type": "object",
+      "description": "Maps source file path (relative to project_root) to the test file generated for it this session. Written by Claude after each test generation (Step 4). Read by post_tool_use.py to emit 'update existing test' instead of 'write test to' when the same source file is edited again. Reset at session start.",
+      "additionalProperties": { "type": "string" },
+      "examples": [{ "services/billing.py": "tests/test_billing.py", "lib/pricing.ts": "__tests__/pricing.test.ts" }]
+    },
     "deferred_failures": {
       "type": "array",
       "description": "Failures the user explicitly chose not to fix this session. Not resurfaced unless the relevant file is edited again.",

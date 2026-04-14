@@ -4,6 +4,8 @@ Tests the pure functions: is_filtered, is_test_file, detect_language,
 extract_file_path.  No Claude Code session required.
 """
 
+import json
+import subprocess
 import sys
 import os
 
@@ -20,6 +22,8 @@ from post_tool_use import (
     build_legacy_context_note,
     get_test_file_path,
 )
+
+HOOK_PATH = os.path.join(os.path.dirname(__file__), "..", "hooks", "post_tool_use.py")
 
 
 # ---------------------------------------------------------------------------
@@ -698,3 +702,166 @@ class TestDetectFrameworkContext:
         runners = {"python": {"command": "pytest", "test_location": "tests/"}}
         note = build_context_note("services/billing.py", "new-file", "python", 1, runners)
         assert "test_billing.py" not in note
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: existing_test_path (update vs regenerate)
+# ---------------------------------------------------------------------------
+
+
+class TestContextNoteExistingTest:
+    PYTHON_RUNNERS = {"python": {"command": "pytest", "test_location": "tests/"}}
+
+    def test_existing_test_path_emits_update(self):
+        note = build_context_note(
+            "services/billing.py", "new-file", "python", 1,
+            self.PYTHON_RUNNERS, "/project",
+            existing_test_path="tests/test_billing.py",
+        )
+        assert "update existing test at tests/test_billing.py" in note
+        assert "write test to" not in note
+
+    def test_no_existing_test_path_emits_write(self):
+        note = build_context_note(
+            "services/billing.py", "new-file", "python", 1,
+            self.PYTHON_RUNNERS, "/project",
+        )
+        assert "write test to" in note
+        assert "update existing test" not in note
+
+    def test_existing_test_path_skips_env_testing_hint(self):
+        # When updating a test, the .env.testing hint is irrelevant
+        import tempfile, os as _os
+        with tempfile.TemporaryDirectory() as tmpdir:
+            laravel_runners = {
+                "php": {
+                    "command": "./vendor/bin/phpunit",
+                    "args": [],
+                    "test_location": "tests/",
+                    "framework": "laravel",
+                    "unit_test_dir": "tests/Unit/",
+                    "feature_test_dir": "tests/Feature/",
+                }
+            }
+            # No .env.testing present, but existing_test_path provided → no skip hint
+            note = build_context_note(
+                "app/Http/Controllers/OrderController.php",
+                "new-file", "php", 1,
+                laravel_runners, tmpdir,
+                existing_test_path="tests/Feature/OrderControllerTest.php",
+            )
+        assert "update existing test at tests/Feature/OrderControllerTest.php" in note
+        assert ".env.testing" not in note
+
+    def test_existing_test_path_runner_name_still_included(self):
+        note = build_context_note(
+            "services/billing.py", "new-file", "python", 1,
+            self.PYTHON_RUNNERS, "/project",
+            existing_test_path="tests/test_billing.py",
+        )
+        assert "pytest" in note
+
+    def test_existing_test_path_pending_count_still_included(self):
+        note = build_context_note(
+            "services/billing.py", "new-file", "python", 3,
+            self.PYTHON_RUNNERS, "/project",
+            existing_test_path="tests/test_billing.py",
+        )
+        assert "3 files pending" in note
+
+
+class TestMainGeneratedTestsIntegration:
+    """Integration tests: hook reads generated_tests from session.json."""
+
+    def _write_session(self, tmpdir: str, generated_tests: dict) -> None:
+        tailtest = os.path.join(tmpdir, ".tailtest")
+        os.makedirs(tailtest, exist_ok=True)
+        session = {
+            "session_id": "test-123",
+            "started_at": "2026-01-01T00:00:00Z",
+            "project_root": tmpdir,
+            "runners": {"python": {"command": "pytest", "args": ["-q"], "test_location": "tests/"}},
+            "depth": "standard",
+            "pending_files": [],
+            "touched_files": [],
+            "fix_attempts": {},
+            "deferred_failures": {},
+            "generated_tests": generated_tests,
+        }
+        with open(os.path.join(tailtest, "session.json"), "w") as fh:
+            json.dump(session, fh)
+
+    def _write_source(self, tmpdir: str, rel_path: str) -> str:
+        abs_path = os.path.join(tmpdir, rel_path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, "w") as fh:
+            fh.write("def add(a, b): return a + b\n")
+        return abs_path
+
+    def test_emits_update_when_generated_test_exists_on_disk(self, tmp_path):
+        tmpdir = str(tmp_path)
+        test_rel = "tests/test_billing.py"
+        source_rel = "services/billing.py"
+        # Write the test file so it "exists on disk"
+        test_abs = os.path.join(tmpdir, test_rel)
+        os.makedirs(os.path.dirname(test_abs), exist_ok=True)
+        open(test_abs, "w").write("def test_add(): pass\n")
+        self._write_source(tmpdir, source_rel)
+        self._write_session(tmpdir, {source_rel: test_rel})
+
+        result = subprocess.run(
+            [sys.executable, HOOK_PATH],
+            input=json.dumps({
+                "tool_name": "Write",
+                "tool_input": {"file_path": os.path.join(tmpdir, source_rel)},
+                "cwd": tmpdir,
+            }),
+            capture_output=True, text=True,
+        )
+        out = json.loads(result.stdout)
+        note = out["hookSpecificOutput"]["additionalContext"]
+        assert "update existing test at tests/test_billing.py" in note
+        assert "write test to" not in note
+
+    def test_emits_write_when_generated_test_missing_from_disk(self, tmp_path):
+        tmpdir = str(tmp_path)
+        test_rel = "tests/test_billing.py"
+        source_rel = "services/billing.py"
+        # generated_tests has entry but the test file does NOT exist
+        self._write_source(tmpdir, source_rel)
+        self._write_session(tmpdir, {source_rel: test_rel})
+
+        result = subprocess.run(
+            [sys.executable, HOOK_PATH],
+            input=json.dumps({
+                "tool_name": "Write",
+                "tool_input": {"file_path": os.path.join(tmpdir, source_rel)},
+                "cwd": tmpdir,
+            }),
+            capture_output=True, text=True,
+        )
+        out = json.loads(result.stdout)
+        note = out["hookSpecificOutput"]["additionalContext"]
+        # Test file was deleted -- fall back to write-new
+        assert "write test to" in note
+        assert "update existing test" not in note
+
+    def test_emits_write_when_no_generated_tests_entry(self, tmp_path):
+        tmpdir = str(tmp_path)
+        source_rel = "services/billing.py"
+        self._write_source(tmpdir, source_rel)
+        self._write_session(tmpdir, {})  # empty generated_tests
+
+        result = subprocess.run(
+            [sys.executable, HOOK_PATH],
+            input=json.dumps({
+                "tool_name": "Write",
+                "tool_input": {"file_path": os.path.join(tmpdir, source_rel)},
+                "cwd": tmpdir,
+            }),
+            capture_output=True, text=True,
+        )
+        out = json.loads(result.stdout)
+        note = out["hookSpecificOutput"]["additionalContext"]
+        assert "write test to" in note
+        assert "update existing test" not in note

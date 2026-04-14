@@ -19,6 +19,11 @@ Read `.tailtest/session.json`. If `pending_files` is non-empty:
 
 Treat all pending entries as one cohesive unit. If Claude wrote a service, a model, and a controller this turn, generate one scenario set for what the system does -- not three disconnected sets.
 
+Write **ONE test file** for the entire batch, named after the primary source file (the entry point, controller, or most feature-rich file). Do not create separate test files for models, helpers, or type-only modules -- cover them through the primary file's tests. After writing the test, record every source file in the batch in `session.json`:
+```json
+{ "generated_tests": { "src/service.py": "tests/test_service.py", "src/model.py": "tests/test_service.py" } }
+```
+
 ---
 
 ## Step 2: Filter -- when to skip
@@ -107,7 +112,15 @@ Write the scenarios as executable test code to disk.
 
 **Examples:** `services/billing.py` → `tests/test_billing.py`. `components/Button.tsx` → `__tests__/Button.test.tsx`. `internal/handler.go` → `internal/handler_test.go`. `app/Http/Controllers/OrderController.php` → `tests/Feature/OrderControllerTest.php`. `app/Services/OrderService.php` → `tests/Unit/OrderServiceTest.php`.
 
-If the test file already exists, update it (add new scenarios, update tests for changed functions). Do not replace the entire file.
+If the context note says **"update existing test at {path}"**, that file was generated for this source file earlier in this session. Open the existing test, add new scenarios or update tests for what changed. Do not replace the entire file and do not regenerate scenarios that already pass.
+
+If no test file exists yet, create it.
+
+After writing or updating the test file, record the mapping in `.tailtest/session.json` under `generated_tests`:
+```json
+{ "generated_tests": { "services/billing.py": "tests/test_billing.py" } }
+```
+This lets the hook emit the correct "update" hint if the same source file is edited again.
 
 Create the test directory if it does not exist.
 

@@ -306,6 +306,7 @@ def load_session(project_root: str) -> dict:
         "runners": {},
         "fix_attempts": {},
         "deferred_failures": [],
+        "generated_tests": {},
     }
 
 
@@ -450,8 +451,15 @@ def build_context_note(
     pending_count: int,
     runners: dict,
     project_root: Optional[str] = None,
+    existing_test_path: Optional[str] = None,
 ) -> str:
-    """Build the one-line additionalContext note for Claude (new-file path)."""
+    """Build the one-line additionalContext note for Claude (new-file path).
+
+    existing_test_path: relative path (from project_root) to a test file
+    already generated for rel_path this session.  When provided, emits
+    ``update existing test at {path}`` instead of ``write test to {path}``
+    and skips new-file-only hints (.env.testing, etc.).
+    """
     runner_name: Optional[str] = None
     if language in runners:
         runner_name = runners[language].get("command")
@@ -462,39 +470,41 @@ def build_context_note(
     lang_info = f"{language}, {framework_ctx}" if framework_ctx else language
     parts = [f"tailtest: {rel_path} queued ({status}, {lang_info})"]
 
-    # Include the exact target path so Claude doesn't have to infer it from
-    # CLAUDE.md rules.  Always for single-file queues.  Also always for PHP
-    # because Feature vs Unit routing is non-obvious and Claude tends to default
-    # to Unit without an explicit hint.
-    should_hint = (pending_count == 1) or (language == "php")
-    if should_hint and project_root:
-        test_abs = get_test_file_path(rel_path, language, runners, project_root)
-        if test_abs is None and language == "rust":
-            if pending_count == 1:  # inline hint only makes sense for single file
-                parts.append(f"add #[cfg(test)] block to {rel_path}")
-        elif test_abs:
-            test_rel = _norm(os.path.relpath(test_abs, project_root))
-            parts.append(f"write test to {test_rel}")
+    if existing_test_path:
+        # A test was already generated for this file this session -- update it.
+        parts.append(f"update existing test at {existing_test_path}")
+    else:
+        # Include the exact target path so Claude doesn't have to infer it.
+        # Always for single-file queues.  Also always for PHP because Feature vs
+        # Unit routing is non-obvious and Claude tends to default to Unit.
+        should_hint = (pending_count == 1) or (language == "php")
+        if should_hint and project_root:
+            test_abs = get_test_file_path(rel_path, language, runners, project_root)
+            if test_abs is None and language == "rust":
+                if pending_count == 1:
+                    parts.append(f"add #[cfg(test)] block to {rel_path}")
+            elif test_abs:
+                test_rel = _norm(os.path.relpath(test_abs, project_root))
+                parts.append(f"write test to {test_rel}")
 
-    # Nuxt requires mountSuspended -- give the exact import line so Claude cannot
-    # substitute @vue/test-utils mount (training bias is very strong here).
-    if framework_ctx == "nuxt":
-        parts.append(
-            "add `import { mountSuspended } from '@nuxt/test-utils'` to test imports"
-            " and call `await mountSuspended(Component, { props: ... })`"
-            " -- do NOT import or call mount from @vue/test-utils"
-        )
-
-    # Laravel Feature tests need a skip comment when .env.testing is absent.
-    # Emit this as a direct instruction so Claude doesn't skip the check.
-    if framework_ctx == "laravel/feature" and project_root:
-        env_testing = os.path.join(project_root, ".env.testing")
-        if not os.path.exists(env_testing):
+        # Nuxt requires mountSuspended -- give the exact import line so Claude
+        # cannot substitute @vue/test-utils mount (training bias is very strong).
+        if framework_ctx == "nuxt":
             parts.append(
-                "no .env.testing found -- add"
-                " '// tailtest: not run -- .env.testing required."
-                " Run manually after setup.' at top of test"
+                "add `import { mountSuspended } from '@nuxt/test-utils'` to test imports"
+                " and call `await mountSuspended(Component, { props: ... })`"
+                " -- do NOT import or call mount from @vue/test-utils"
             )
+
+        # Laravel Feature tests need a skip comment when .env.testing is absent.
+        if framework_ctx == "laravel/feature" and project_root:
+            env_testing = os.path.join(project_root, ".env.testing")
+            if not os.path.exists(env_testing):
+                parts.append(
+                    "no .env.testing found -- add"
+                    " '// tailtest: not run -- .env.testing required."
+                    " Run manually after setup.' at top of test"
+                )
 
     if pending_count > 1:
         parts.append(f"{pending_count} files pending")
@@ -595,6 +605,17 @@ def main() -> None:
     except OSError:
         pass
 
+    # Check whether a test was already generated for this file this session.
+    # If the mapped test file exists on disk, emit an "update" hint instead of
+    # a "write new" hint so Claude amends the existing test rather than
+    # regenerating it from scratch.
+    generated_tests: dict = session.get("generated_tests", {})
+    existing_test_path: Optional[str] = None
+    if rel_path in generated_tests:
+        candidate = generated_tests[rel_path]
+        if os.path.exists(os.path.join(project_root, candidate)):
+            existing_test_path = candidate
+
     context = build_context_note(
         rel_path,
         status,
@@ -602,6 +623,7 @@ def main() -> None:
         len(pending_files),
         runners,
         project_root,
+        existing_test_path,
     )
     print(json.dumps({"hookSpecificOutput": {"additionalContext": context}}))
 
