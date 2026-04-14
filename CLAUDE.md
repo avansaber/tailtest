@@ -92,9 +92,12 @@ Write the scenarios as executable test code to disk.
 | Rust | inline inside the source file (`#[cfg(test)]` module) | n/a -- see Scenario rules |
 | Ruby | `runners.ruby.test_location` from session.json | `{source_basename}_spec.rb` (rspec) or `{source_basename}_test.rb` (minitest) |
 | Java | `runners.java.test_location` from session.json, default `src/test/java/` | `{source_basename}Test.java` |
-| PHP | `runners.php.unit_test_dir` from session.json, default `tests/Unit/` | `{source_basename}Test.php` |
+| PHP (laravel/unit context) | `runners.php.unit_test_dir` from session.json, default `tests/Unit/` | `{source_basename}Test.php` |
+| PHP (laravel/feature context) | `runners.php.feature_test_dir` from session.json, default `tests/Feature/` | `{source_basename}Test.php` |
 
-**Examples:** `services/billing.py` → `tests/test_billing.py`. `components/Button.tsx` → `__tests__/Button.test.tsx`. `internal/handler.go` → `internal/handler_test.go`.
+**Context routing:** the tailtest context note contains the framework variant, e.g. `(new-file, php, laravel/unit)` or `(new-file, php, laravel/feature)`. Use it to pick the correct directory. Controllers in `app/Http/` → `laravel/feature` → `tests/Feature/`. Services/Models in `app/Services/`, `app/Models/` → `laravel/unit` → `tests/Unit/`.
+
+**Examples:** `services/billing.py` → `tests/test_billing.py`. `components/Button.tsx` → `__tests__/Button.test.tsx`. `internal/handler.go` → `internal/handler_test.go`. `app/Http/Controllers/OrderController.php` → `tests/Feature/OrderControllerTest.php`. `app/Services/OrderService.php` → `tests/Unit/OrderServiceTest.php`.
 
 If the test file already exists, update it (add new scenarios, update tests for changed functions). Do not replace the entire file.
 
