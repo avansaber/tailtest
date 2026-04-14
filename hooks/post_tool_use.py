@@ -29,6 +29,8 @@ LANGUAGE_MAP: dict[str, str] = {
     ".jsx": "javascript",
     ".mjs": "javascript",
     ".cjs": "javascript",
+    ".vue": "javascript",  # Vue SFCs -- runner detected under javascript key
+    ".svelte": "javascript",  # Svelte SFCs
     ".ts": "typescript",
     ".tsx": "typescript",
     ".mts": "typescript",
@@ -362,7 +364,12 @@ def get_test_file_path(
     elif language == "typescript":
         test_filename = f"{basename}.test.ts"
     elif language == "javascript":
-        test_filename = f"{basename}.test.js"
+        # Vue/Svelte SFCs may live in TypeScript projects; use .test.ts when
+        # a typescript runner is present (tsconfig.json was found at session start).
+        if "typescript" in runners:
+            test_filename = f"{basename}.test.ts"
+        else:
+            test_filename = f"{basename}.test.js"
     elif language == "ruby":
         # rspec → _spec.rb, minitest → _test.rb
         if "spec" in test_location:
@@ -414,6 +421,13 @@ def detect_framework_context(
 ) -> str:
     """Return a framework context hint for the additionalContext note, or empty string."""
     runner_info = runners.get(language)
+    # Vue/Svelte SFCs are mapped to "javascript" but the runner may be stored under
+    # "typescript" when tsconfig.json is present (and vice versa).  Allow cross-lookup
+    # within the JS/TS family only.
+    if not runner_info and language == "javascript" and "typescript" in runners:
+        runner_info = runners["typescript"]
+    elif not runner_info and language == "typescript" and "javascript" in runners:
+        runner_info = runners["javascript"]
     if not runner_info:
         return ""
     framework = runner_info.get("framework")
@@ -448,16 +462,39 @@ def build_context_note(
     lang_info = f"{language}, {framework_ctx}" if framework_ctx else language
     parts = [f"tailtest: {rel_path} queued ({status}, {lang_info})"]
 
-    # For single-file queues, include the exact target path so Claude doesn't
-    # have to infer it from CLAUDE.md rules (same approach as legacy-file note).
-    if pending_count == 1 and project_root:
+    # Include the exact target path so Claude doesn't have to infer it from
+    # CLAUDE.md rules.  Always for single-file queues.  Also always for PHP
+    # because Feature vs Unit routing is non-obvious and Claude tends to default
+    # to Unit without an explicit hint.
+    should_hint = (pending_count == 1) or (language == "php")
+    if should_hint and project_root:
         test_abs = get_test_file_path(rel_path, language, runners, project_root)
         if test_abs is None and language == "rust":
-            # Rust: tests are inline in the source file
-            parts.append(f"add #[cfg(test)] block to {rel_path}")
+            if pending_count == 1:  # inline hint only makes sense for single file
+                parts.append(f"add #[cfg(test)] block to {rel_path}")
         elif test_abs:
             test_rel = _norm(os.path.relpath(test_abs, project_root))
             parts.append(f"write test to {test_rel}")
+
+    # Nuxt requires mountSuspended -- give the exact import line so Claude cannot
+    # substitute @vue/test-utils mount (training bias is very strong here).
+    if framework_ctx == "nuxt":
+        parts.append(
+            "add `import { mountSuspended } from '@nuxt/test-utils'` to test imports"
+            " and call `await mountSuspended(Component, { props: ... })`"
+            " -- do NOT import or call mount from @vue/test-utils"
+        )
+
+    # Laravel Feature tests need a skip comment when .env.testing is absent.
+    # Emit this as a direct instruction so Claude doesn't skip the check.
+    if framework_ctx == "laravel/feature" and project_root:
+        env_testing = os.path.join(project_root, ".env.testing")
+        if not os.path.exists(env_testing):
+            parts.append(
+                "no .env.testing found -- add"
+                " '// tailtest: not run -- .env.testing required."
+                " Run manually after setup.' at top of test"
+            )
 
     if pending_count > 1:
         parts.append(f"{pending_count} files pending")

@@ -609,6 +609,19 @@ class TestDetectFrameworkContext:
         ctx = detect_framework_context("services/billing.py", "python", self.GO_RUNNERS)
         assert ctx == ""
 
+    def test_vue_file_with_typescript_runner_gets_nuxt_context(self):
+        # .vue files are mapped to "javascript" in LANGUAGE_MAP but runner may be
+        # stored under "typescript" when tsconfig.json exists.  Cross-family fallback.
+        nuxt_ts_runners = {"typescript": {"command": "vitest", "args": ["run"], "framework": "nuxt"}}
+        ctx = detect_framework_context("components/InvoiceCard.vue", "javascript", nuxt_ts_runners)
+        assert ctx == "nuxt"
+
+    def test_vue_file_js_runner_gets_nuxt_context(self):
+        # .vue with runner under "javascript" key (no tsconfig.json).
+        nuxt_js_runners = {"javascript": {"command": "vitest", "args": ["run"], "framework": "nuxt"}}
+        ctx = detect_framework_context("components/InvoiceCard.vue", "javascript", nuxt_js_runners)
+        assert ctx == "nuxt"
+
     def test_context_note_includes_framework(self):
         note = build_context_note(
             "internal/handler.go", "new-file", "go", 1, self.GO_RUNNERS
@@ -643,14 +656,36 @@ class TestDetectFrameworkContext:
         assert "src/lib.rs" in note
 
     def test_context_note_laravel_feature_path(self):
+        # Feature controller: path hint + .env.testing skip comment when absent.
         note = build_context_note(
             "app/Http/Controllers/UserController.php",
             "new-file", "php", 1, self.LARAVEL_RUNNERS, "/project"
         )
         assert "tests/Feature/UserControllerTest.php" in note
+        assert ".env.testing" in note  # skip-comment hint emitted when absent
+
+    def test_context_note_laravel_feature_no_skip_when_env_testing_exists(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, ".env.testing"), "w").close()
+            note = build_context_note(
+                "app/Http/Controllers/UserController.php",
+                "new-file", "php", 1, self.LARAVEL_RUNNERS, tmpdir
+            )
+        assert "tests/Feature/UserControllerTest.php" in note
+        assert ".env.testing" not in note  # no skip-comment hint when file exists
+
+    def test_context_note_php_multi_file_still_includes_path(self):
+        # PHP always gets an explicit path hint -- Feature vs Unit routing is non-trivial.
+        note = build_context_note(
+            "app/Http/Controllers/InvoiceController.php",
+            "new-file", "php", 3, self.LARAVEL_RUNNERS, "/project"
+        )
+        assert "tests/Feature/InvoiceControllerTest.php" in note
+        assert "3 files pending" in note
 
     def test_context_note_multi_file_no_path(self):
-        # Multi-file queue → no test path hint (too ambiguous)
+        # Multi-file queue for non-PHP → no test path hint (too ambiguous)
         runners = {"python": {"command": "pytest", "test_location": "tests/"}}
         note = build_context_note(
             "services/billing.py", "new-file", "python", 3, runners, "/project"
