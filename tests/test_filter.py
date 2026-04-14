@@ -16,6 +16,8 @@ from post_tool_use import (
     is_filtered,
     is_test_file,
     build_context_note,
+    build_legacy_context_note,
+    get_test_file_path,
 )
 
 
@@ -272,6 +274,18 @@ class TestIsFilteredTailTestIgnore:
         patterns = ["other/*.py"]
         assert not _filtered("scripts/seed.py", patterns)
 
+    def test_directory_pattern_trailing_slash(self):
+        patterns = ["scripts/"]
+        assert _filtered("scripts/deploy.py", patterns)
+
+    def test_directory_pattern_nested(self):
+        patterns = ["scripts/"]
+        assert _filtered("scripts/nested/deploy.py", patterns)
+
+    def test_directory_pattern_does_not_match_sibling(self):
+        patterns = ["scripts/"]
+        assert not _filtered("services/billing.py", patterns)
+
     def test_comment_lines_ignored(self):
         # Comments are stripped by load_ignore_patterns before reaching is_filtered
         # Here we just test that no crash occurs with an empty list
@@ -371,3 +385,104 @@ class TestBuildContextNote:
         runners = {"typescript": {"command": "vitest", "args": ["run"], "test_location": "__tests__/"}}
         note = build_context_note("app.py", "new-file", "python", 1, runners)
         assert "vitest" in note
+
+
+# ---------------------------------------------------------------------------
+# get_test_file_path
+# ---------------------------------------------------------------------------
+
+
+class TestGetTestFilePath:
+    PYTHON_RUNNERS = {
+        "python": {"command": "pytest", "args": ["-q"], "test_location": "tests/"}
+    }
+    TS_RUNNERS = {
+        "typescript": {"command": "vitest", "args": ["run"], "test_location": "__tests__/"}
+    }
+    JS_RUNNERS = {
+        "javascript": {"command": "vitest", "args": ["run"], "test_location": "__tests__/"}
+    }
+
+    def test_python_source_file(self):
+        path = get_test_file_path(
+            "services/billing.py", "python", self.PYTHON_RUNNERS, "/project"
+        )
+        assert path == "/project/tests/test_billing.py"
+
+    def test_python_nested_source_file(self):
+        path = get_test_file_path(
+            "app/services/billing.py", "python", self.PYTHON_RUNNERS, "/project"
+        )
+        assert path == "/project/tests/test_billing.py"
+
+    def test_typescript_source_file(self):
+        path = get_test_file_path(
+            "src/components/Button.tsx", "typescript", self.TS_RUNNERS, "/project"
+        )
+        assert path == "/project/__tests__/Button.test.ts"
+
+    def test_javascript_source_file(self):
+        path = get_test_file_path(
+            "src/utils.js", "javascript", self.JS_RUNNERS, "/project"
+        )
+        assert path == "/project/__tests__/utils.test.js"
+
+    def test_no_runner_returns_none(self):
+        path = get_test_file_path("billing.py", "python", {}, "/project")
+        assert path is None
+
+    def test_unsupported_language_returns_none(self):
+        path = get_test_file_path(
+            "main.go", "go", self.PYTHON_RUNNERS, "/project"
+        )
+        assert path is None
+
+    def test_test_location_trailing_slash_stripped(self):
+        runners = {"python": {"command": "pytest", "test_location": "tests///"}}
+        path = get_test_file_path("app.py", "python", runners, "/project")
+        assert path == "/project/tests/test_app.py"
+
+    def test_language_not_in_runners_uses_first_runner(self):
+        # python file but only typescript runner present --
+        # falls back to first runner's test_location with python naming
+        path = get_test_file_path(
+            "utils.py", "python", self.TS_RUNNERS, "/project"
+        )
+        assert path == "/project/__tests__/test_utils.py"
+
+    def test_python_with_ts_runner_fallback(self):
+        # python language, typescript runner as fallback -- uses TS test_location but python naming
+        runners = {"typescript": {"command": "vitest", "test_location": "__tests__/"}}
+        path = get_test_file_path("utils.py", "python", runners, "/project")
+        assert path == "/project/__tests__/test_utils.py"
+
+
+# ---------------------------------------------------------------------------
+# build_legacy_context_note
+# ---------------------------------------------------------------------------
+
+
+class TestBuildLegacyContextNote:
+    def test_includes_file_path(self):
+        note = build_legacy_context_note("services/billing.py", "pytest", "tests/test_billing.py")
+        assert "services/billing.py" in note
+
+    def test_includes_do_not_generate_instruction(self):
+        note = build_legacy_context_note("services/billing.py", "pytest", "tests/test_billing.py")
+        assert "do not generate" in note.lower()
+
+    def test_includes_run_command(self):
+        note = build_legacy_context_note("services/billing.py", "pytest", "tests/test_billing.py")
+        assert "pytest" in note
+        assert "tests/test_billing.py" in note
+
+    def test_existing_file_framing(self):
+        note = build_legacy_context_note("app.py", "pytest -q", "tests/test_app.py")
+        assert "existing" in note or "session" in note
+
+    def test_vitest_runner(self):
+        note = build_legacy_context_note(
+            "src/Button.tsx", "npx vitest run", "__tests__/Button.test.ts"
+        )
+        assert "vitest" in note
+        assert "Button.test.ts" in note

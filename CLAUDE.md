@@ -9,15 +9,15 @@ You are running with the tailtest plugin. Your job: automatically run the test c
 Read `.tailtest/session.json`. If `pending_files` is non-empty:
 
 1. Note the pending files list
-2. Skip any filtered files (filter rules below)
+2. Skip any filtered files (filter rules in Step 2)
 3. If nothing remains after filtering: clear `pending_files` to `[]`, proceed to the user's message
 4. Generate scenarios for all remaining files as one unit of work
-5. Execute the scenarios
-6. Report failures -- stay silent if all pass
+5. Write test file and execute (Steps 4–5)
+6. Report failures -- stay silent if all pass (Step 6)
 7. Write `"pending_files": []` back to `.tailtest/session.json`
 8. Then address the user's message
 
-Treat all pending files as one cohesive unit. If Claude wrote a service, a model, and a controller this turn, generate one scenario set for what the system does -- not three disconnected sets.
+Treat all pending entries as one cohesive unit. If Claude wrote a service, a model, and a controller this turn, generate one scenario set for what the system does -- not three disconnected sets.
 
 ---
 
@@ -52,9 +52,6 @@ Skip a file with no output if it matches any of these:
 - Next.js Server Action: file has `'use server'` directive at top + `next` is in `package.json`
 - Next.js edge runtime: `middleware.ts` or `middleware.js` at project root + Next.js detected
 
-**By session state:**
-- `pending_files` entry has `"status": "legacy-file"` -- file existed before this session. Run existing tests if a test file is present; stay silent if none.
-
 If in doubt whether a file has testable logic, skip. A missed file is better than noise.
 
 ---
@@ -82,14 +79,32 @@ Depth is read from `.tailtest/config.json` (`depth` key). Default when absent: `
 
 ---
 
-## Step 4: Execute
+## Step 4: Write the test file
+
+Write the scenarios as executable test code to disk.
+
+| Language | Where to write | File name |
+|---|---|---|
+| Python | `runners.python.test_location` from session.json, default `tests/` | `test_{source_basename}.py` |
+| TypeScript | `runners.typescript.test_location` from session.json, default `__tests__/` | `{source_basename}.test.ts` or `.test.tsx` |
+| JavaScript | `runners.javascript.test_location` from session.json, default `__tests__/` | `{source_basename}.test.js` |
+
+**Example:** `services/billing.py` → `tests/test_billing.py`. `components/Button.tsx` → `__tests__/Button.test.tsx`.
+
+If the test file already exists, update it (add new scenarios, update tests for changed functions). Do not replace the entire file.
+
+Create the test directory if it does not exist.
+
+---
+
+## Step 5: Execute
 
 Try each tier in order. Stop at the first that works.
 
 | Tier | What to use |
 |---|---|
-| **Runner** | `pytest -q` · `npx vitest run` · `./vendor/bin/phpunit` · `go test ./...` · `bundle exec rspec` · `cargo test` · `./mvnw test` |
-| **Bash** | `python -c "..."` · `node -e "..."` · `php -r "..."` · `go run .` · `ruby -e "..."` |
+| **Runner** | `pytest -q tests/test_billing.py` · `npx vitest run __tests__/Button.test.tsx` -- run the specific test file just written, not the whole suite |
+| **Bash** | `python -c "..."` · `node -e "..."` -- only if no test file was written |
 | **Simulation** | Reason through the code. Always state explicitly: "Simulating -- no runner available." |
 
 Simulation is the floor. There is no code you wrote that you cannot reason about.
@@ -102,7 +117,7 @@ Simulation is the floor. There is no code you wrote that you cannot reason about
 
 ---
 
-## Step 5: Report
+## Step 6: Report
 
 | Outcome | What you do |
 |---|---|

@@ -185,9 +185,13 @@ def is_filtered(
     name = os.path.basename(rel_path)
     lower_name = name.lower()
 
-    # 1. .tailtest-ignore patterns
+    # 1. .tailtest-ignore patterns (gitignore-style)
     for pat in ignore_patterns:
-        if fnmatch.fnmatch(rel_path, pat) or fnmatch.fnmatch(name, pat):
+        if pat.endswith("/"):
+            # Directory pattern: "scripts/" matches scripts/deploy.py, scripts/a/b.py, etc.
+            if rel_path.startswith(pat):
+                return True
+        elif fnmatch.fnmatch(rel_path, pat) or fnmatch.fnmatch(name, pat):
             return True
 
     # 2. Path fragments (directory-level exclusions)
@@ -316,6 +320,54 @@ def extract_file_path(tool_name: str, tool_input: dict) -> Optional[str]:
     return None
 
 
+def get_test_file_path(
+    rel_path: str,
+    language: str,
+    runners: dict,
+    project_root: str,
+) -> Optional[str]:
+    """Return the absolute path of the expected test file for a source file.
+
+    Returns None if the language is unsupported or no runner is found.
+    Does NOT check whether the file exists on disk.
+    """
+    runner_info = runners.get(language)
+    if not runner_info and runners:
+        runner_info = next(iter(runners.values()))
+    if not runner_info:
+        return None
+
+    test_location = runner_info.get("test_location", "tests/").rstrip("/")
+    basename = os.path.splitext(os.path.basename(rel_path))[0]
+
+    if language == "python":
+        test_filename = f"test_{basename}.py"
+    elif language == "typescript":
+        test_filename = f"{basename}.test.ts"
+    elif language == "javascript":
+        test_filename = f"{basename}.test.js"
+    else:
+        return None
+
+    return os.path.join(project_root, test_location, test_filename)
+
+
+def build_legacy_context_note(
+    rel_path: str,
+    runner_cmd: str,
+    test_rel_path: str,
+) -> str:
+    """Build the additionalContext note for a legacy file that has existing tests.
+
+    Outputs a direct run-and-verify instruction.  No generate step.
+    """
+    return (
+        f"tailtest: {rel_path} edited (existing file). "
+        f"Do not generate new tests. "
+        f"Run: `{runner_cmd} {test_rel_path}`"
+    )
+
+
 def build_context_note(
     rel_path: str,
     status: str,
@@ -323,7 +375,7 @@ def build_context_note(
     pending_count: int,
     runners: dict,
 ) -> str:
-    """Build the one-line additionalContext note for Claude."""
+    """Build the one-line additionalContext note for Claude (new-file path)."""
     runner_name: Optional[str] = None
     if language in runners:
         runner_name = runners[language].get("command")
@@ -383,12 +435,34 @@ def main() -> None:
 
     status = determine_status(file_path, project_root, touched_files)
 
-    # Update touched_files
+    # Update touched_files regardless of status
     if rel_path not in touched_files:
         touched_files.append(rel_path)
         session["touched_files"] = touched_files
 
-    # Append to pending_files (skip if already queued this turn)
+    runners: dict = session.get("runners", {})
+
+    if status == "legacy-file":
+        # Legacy files do NOT go into pending_files.
+        # Emit a direct "run existing tests" instruction if a test file exists;
+        # stay silent otherwise.
+        try:
+            save_session(project_root, session)
+        except OSError:
+            pass
+
+        test_abs = get_test_file_path(rel_path, language, runners, project_root)
+        if not test_abs or not os.path.exists(test_abs):
+            sys.exit(0)
+
+        runner_info = runners.get(language) or (next(iter(runners.values())) if runners else None)
+        runner_cmd = runner_info.get("command", "pytest") if runner_info else "pytest"
+        test_rel = _norm(os.path.relpath(test_abs, project_root))
+        context = build_legacy_context_note(rel_path, runner_cmd, test_rel)
+        print(json.dumps({"hookSpecificOutput": {"additionalContext": context}}))
+        return
+
+    # new-file: batch into pending_files for next-turn generation
     pending_files: list[dict] = session.get("pending_files", [])
     if rel_path not in [p["path"] for p in pending_files]:
         pending_files.append({
@@ -408,7 +482,7 @@ def main() -> None:
         status,
         language,
         len(pending_files),
-        session.get("runners", {}),
+        runners,
     )
     print(json.dumps({"hookSpecificOutput": {"additionalContext": context}}))
 
