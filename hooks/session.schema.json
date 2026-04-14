@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tailtest/session.schema.json",
+  "title": "tailtest session",
+  "description": "Written to .tailtest/session.json at session start. Appended to on each hook fire. Read and cleared by Claude at the start of each user turn.",
+  "type": "object",
+  "required": ["session_id", "started_at", "project_root", "runners", "pending_files", "touched_files", "fix_attempts", "deferred_failures"],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Unique identifier for this Claude Code session. Format: ISO timestamp + random suffix. Example: 2026-04-13T10-30-00-a1b2c3"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the session started. Written once by session_start.py."
+    },
+    "project_root": {
+      "type": "string",
+      "description": "Absolute path to the project root as detected by session_start.py."
+    },
+    "runners": {
+      "type": "object",
+      "description": "Detected runners per language, keyed by language name. Written once by session_start.py. Used by every subsequent hook fire to select the correct runner without re-scanning.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["command", "args", "test_location"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The runner executable. Examples: pytest, vitest, phpunit, go, rspec, cargo."
+          },
+          "args": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Default arguments. Examples: [\"-q\"] for pytest, [\"run\"] for vitest."
+          },
+          "test_location": {
+            "type": "string",
+            "description": "Relative path from project root where tests live. Examples: tests/, __tests__/, spec/"
+          }
+        }
+      },
+      "examples": [
+        {
+          "python": { "command": "pytest", "args": ["-q"], "test_location": "tests/" },
+          "javascript": { "command": "vitest", "args": ["run"], "test_location": "__tests__/" }
+        }
+      ]
+    },
+    "depth": {
+      "type": "string",
+      "enum": ["simple", "standard", "thorough"],
+      "default": "standard",
+      "description": "Scenario depth. Read from .tailtest/config.json at session start. Defaults to standard if config is absent."
+    },
+    "pending_files": {
+      "type": "array",
+      "description": "Files written or edited this turn that have not yet been processed by Claude. Appended to by post_tool_use.py on each hook fire. Read and cleared to [] by Claude at the start of each user turn.",
+      "items": {
+        "type": "object",
+        "required": ["path", "language", "status"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path relative to project root."
+          },
+          "language": {
+            "type": "string",
+            "description": "Detected language. Examples: python, javascript, typescript, php, go, ruby, rust, java."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["new-file", "legacy-file"],
+            "description": "new-file: file was created or first touched in this session -- generate scenarios. legacy-file: file existed before this session -- run existing tests if present, stay silent if not."
+          }
+        }
+      }
+    },
+    "touched_files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "All files touched in this session (relative paths). Used by post_tool_use.py to determine new-file vs legacy-file status on subsequent edits. Also used as the no-git fallback: when .git is absent, any file not in this list on first touch is treated as new-file."
+    },
+    "fix_attempts": {
+      "type": "object",
+      "description": "Number of failed fix attempts per file this session. Keyed by relative file path. Incremented by Claude after each failed fix. Reset to 0 when the file passes. Claude stops at 3 and does not attempt a 4th fix.",
+      "additionalProperties": { "type": "integer", "minimum": 0 },
+      "examples": [{ "services/billing.py": 1, "lib/pricing.ts": 2 }]
+    },
+    "deferred_failures": {
+      "type": "array",
+      "description": "Failures the user explicitly chose not to fix this session. Not resurfaced unless the relevant file is edited again.",
+      "items": {
+        "type": "object",
+        "required": ["file", "description", "deferred_at"],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Relative path to the file with the deferred failure."
+          },
+          "description": {
+            "type": "string",
+            "description": "One-line summary of the failure that was deferred."
+          },
+          "deferred_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp when the user chose to defer."
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "session_id": "2026-04-13T10-30-00-a1b2c3",
+      "started_at": "2026-04-13T10:30:00Z",
+      "project_root": "/Users/nikhil/projects/inventory",
+      "runners": {
+        "php": { "command": "phpunit", "args": [], "test_location": "tests/" }
+      },
+      "depth": "standard",
+      "pending_files": [
+        { "path": "app/Services/PurchaseOrderService.php", "language": "php", "status": "new-file" },
+        { "path": "app/Models/PurchaseOrder.php", "language": "php", "status": "new-file" }
+      ],
+      "touched_files": [
+        "app/Services/PurchaseOrderService.php",
+        "app/Models/PurchaseOrder.php"
+      ],
+      "fix_attempts": {},
+      "deferred_failures": []
+    }
+  ]
+}
