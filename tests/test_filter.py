@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "hooks"))
 import pytest
 from post_tool_use import (
     detect_language,
+    detect_framework_context,
     extract_file_path,
     is_filtered,
     is_test_file,
@@ -456,6 +457,73 @@ class TestGetTestFilePath:
         path = get_test_file_path("utils.py", "python", runners, "/project")
         assert path == "/project/__tests__/test_utils.py"
 
+    # --- Phase 2: Go ---
+
+    def test_go_colocated_in_subdir(self):
+        runners = {"go": {"command": "go test", "args": ["./..."], "test_location": ".", "style": "colocated"}}
+        path = get_test_file_path("internal/handler.go", "go", runners, "/project")
+        assert path == "/project/internal/handler_test.go"
+
+    def test_go_colocated_root_level(self):
+        runners = {"go": {"command": "go test", "args": ["./..."], "test_location": ".", "style": "colocated"}}
+        path = get_test_file_path("main.go", "go", runners, "/project")
+        assert path == "/project/main_test.go"
+
+    def test_go_requires_configured_runner(self):
+        # go is in RUNNER_REQUIRED_LANGUAGES -- no fallback to python runner
+        path = get_test_file_path("main.go", "go", self.PYTHON_RUNNERS, "/project")
+        assert path is None
+
+    # --- Phase 2: Rust ---
+
+    def test_rust_returns_none(self):
+        runners = {"rust": {"command": "cargo test", "args": [], "test_location": "inline", "style": "inline"}}
+        path = get_test_file_path("src/lib.rs", "rust", runners, "/project")
+        assert path is None
+
+    def test_rust_requires_configured_runner(self):
+        path = get_test_file_path("src/lib.rs", "rust", self.PYTHON_RUNNERS, "/project")
+        assert path is None
+
+    # --- Phase 2: Ruby ---
+
+    def test_ruby_rspec(self):
+        runners = {"ruby": {"command": "bundle exec rspec", "args": [], "test_location": "spec/"}}
+        path = get_test_file_path("app/models/user.rb", "ruby", runners, "/project")
+        assert path == "/project/spec/user_spec.rb"
+
+    def test_ruby_minitest(self):
+        runners = {"ruby": {"command": "bundle exec rake test", "args": [], "test_location": "test/"}}
+        path = get_test_file_path("app/models/user.rb", "ruby", runners, "/project")
+        assert path == "/project/test/user_test.rb"
+
+    def test_ruby_requires_configured_runner(self):
+        path = get_test_file_path("app/models/user.rb", "ruby", self.PYTHON_RUNNERS, "/project")
+        assert path is None
+
+    # --- Phase 2: Java ---
+
+    def test_java_maven(self):
+        runners = {"java": {"command": "./mvnw test", "args": [], "test_location": "src/test/java/"}}
+        path = get_test_file_path("src/main/java/BillingService.java", "java", runners, "/project")
+        assert path == "/project/src/test/java/BillingServiceTest.java"
+
+    def test_java_requires_configured_runner(self):
+        path = get_test_file_path("src/main/java/BillingService.java", "java", self.PYTHON_RUNNERS, "/project")
+        assert path is None
+
+    # --- Phase 2: PHP ---
+
+    def test_php_default_unit_dir(self):
+        runners = {"php": {"command": "./vendor/bin/phpunit", "args": [], "test_location": "tests/", "unit_test_dir": "tests/Unit/"}}
+        path = get_test_file_path("app/Http/Controllers/UserController.php", "php", runners, "/project")
+        # No existing test file on disk -> falls back to tests/Unit/
+        assert path == "/project/tests/Unit/UserControllerTest.php"
+
+    def test_php_requires_configured_runner(self):
+        path = get_test_file_path("app/Http/Controllers/UserController.php", "php", self.PYTHON_RUNNERS, "/project")
+        assert path is None
+
 
 # ---------------------------------------------------------------------------
 # build_legacy_context_note
@@ -486,3 +554,63 @@ class TestBuildLegacyContextNote:
         )
         assert "vitest" in note
         assert "Button.test.ts" in note
+
+
+# ---------------------------------------------------------------------------
+# detect_framework_context
+# ---------------------------------------------------------------------------
+
+
+class TestDetectFrameworkContext:
+    GO_RUNNERS = {"go": {"command": "go test", "args": ["./..."], "style": "colocated"}}
+    RUST_RUNNERS = {"rust": {"command": "cargo test", "args": [], "style": "inline"}}
+    LARAVEL_RUNNERS = {"php": {"command": "./vendor/bin/phpunit", "args": [], "framework": "laravel"}}
+    NEXTJS_RUNNERS = {"typescript": {"command": "vitest", "args": ["run"], "framework": "nextjs"}}
+    NUXT_RUNNERS = {"typescript": {"command": "vitest", "args": ["run"], "framework": "nuxt"}}
+
+    def test_go_colocated_style(self):
+        ctx = detect_framework_context("internal/handler.go", "go", self.GO_RUNNERS)
+        assert ctx == "go/colocated"
+
+    def test_rust_inline_style(self):
+        ctx = detect_framework_context("src/lib.rs", "rust", self.RUST_RUNNERS)
+        assert ctx == "rust/inline"
+
+    def test_laravel_feature_controller(self):
+        ctx = detect_framework_context(
+            "app/Http/Controllers/UserController.php", "php", self.LARAVEL_RUNNERS
+        )
+        assert ctx == "laravel/feature"
+
+    def test_laravel_unit_model(self):
+        ctx = detect_framework_context("app/Models/User.php", "php", self.LARAVEL_RUNNERS)
+        assert ctx == "laravel/unit"
+
+    def test_nextjs_framework(self):
+        ctx = detect_framework_context("src/components/Button.tsx", "typescript", self.NEXTJS_RUNNERS)
+        assert ctx == "nextjs"
+
+    def test_nuxt_framework(self):
+        ctx = detect_framework_context("components/MyButton.vue", "typescript", self.NUXT_RUNNERS)
+        assert ctx == "nuxt"
+
+    def test_no_framework_returns_empty(self):
+        runners = {"python": {"command": "pytest", "args": ["-q"], "test_location": "tests/"}}
+        ctx = detect_framework_context("services/billing.py", "python", runners)
+        assert ctx == ""
+
+    def test_language_not_in_runners_returns_empty(self):
+        ctx = detect_framework_context("services/billing.py", "python", self.GO_RUNNERS)
+        assert ctx == ""
+
+    def test_context_note_includes_framework(self):
+        note = build_context_note(
+            "internal/handler.go", "new-file", "go", 1, self.GO_RUNNERS
+        )
+        assert "go/colocated" in note
+
+    def test_context_note_no_framework_unchanged(self):
+        runners = {"python": {"command": "pytest", "args": ["-q"], "test_location": "tests/"}}
+        note = build_context_note("services/billing.py", "new-file", "python", 1, runners)
+        assert "go/colocated" not in note
+        assert "billing.py" in note

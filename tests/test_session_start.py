@@ -15,9 +15,14 @@ from session_start import (
     build_bootstrap_note,
     build_compact_context,
     build_startup_context,
+    detect_go_runner,
+    detect_java_runner,
     detect_node_runner,
+    detect_php_runner,
     detect_project_type,
     detect_python_runner,
+    detect_ruby_runner,
+    detect_rust_runner,
     read_depth,
     scan_runners,
 )
@@ -67,6 +72,27 @@ class TestDetectPythonRunner:
         (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
         result = detect_python_runner(str(tmp_path), str(tmp_path))
         assert "tests/" in result["test_location"]
+
+    def test_django_framework_detected(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+        (tmp_path / "manage.py").write_text("#!/usr/bin/env python\n")
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "django"
+
+    def test_fastapi_framework_detected(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["fastapi>=0.100"]\n'
+        )
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "fastapi"
+
+    def test_no_framework_returns_no_framework_key(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert "framework" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +148,35 @@ class TestDetectNodeRunner:
     def test_malformed_json_returns_none(self, tmp_path):
         (tmp_path / "package.json").write_text("not valid json {{{")
         assert detect_node_runner(str(tmp_path), str(tmp_path)) is None
+
+    def test_nextjs_framework_detected(self, tmp_path):
+        pkg = {"devDependencies": {"vitest": "^1.0.0"}, "dependencies": {"next": "14.0.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "nextjs"
+
+    def test_nuxt_framework_via_dep(self, tmp_path):
+        pkg = {"devDependencies": {"vitest": "^1.0.0", "nuxt": "^3.0.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "nuxt"
+
+    def test_nuxt_framework_via_config_file(self, tmp_path):
+        pkg = {"devDependencies": {"vitest": "^1.0.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        (tmp_path / "nuxt.config.ts").write_text("export default defineNuxtConfig({})\n")
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "nuxt"
+
+    def test_no_framework_returns_none_for_framework_key(self, tmp_path):
+        pkg = {"devDependencies": {"vitest": "^1.0.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert "framework" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -328,3 +383,175 @@ class TestBuildCompactContext:
     def test_no_pending_no_pending_line(self):
         ctx = build_compact_context("/tmp/proj", {}, "standard", [], {}, "")
         assert "pending" not in ctx
+
+
+# ---------------------------------------------------------------------------
+# detect_php_runner
+# ---------------------------------------------------------------------------
+
+
+class TestDetectPhpRunner:
+    def test_no_composer_json_returns_none(self, tmp_path):
+        assert detect_php_runner(str(tmp_path), str(tmp_path)) is None
+
+    def test_composer_without_phpunit_returns_none(self, tmp_path):
+        composer = {"require": {"php": "^8.1"}, "require-dev": {"mockery/mockery": "^1.6"}}
+        (tmp_path / "composer.json").write_text(json.dumps(composer))
+        assert detect_php_runner(str(tmp_path), str(tmp_path)) is None
+
+    def test_phpunit_in_require_dev(self, tmp_path):
+        composer = {"require-dev": {"phpunit/phpunit": "^10.0"}}
+        (tmp_path / "composer.json").write_text(json.dumps(composer))
+        result = detect_php_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["command"] == "./vendor/bin/phpunit"
+        assert result["test_location"] == "tests/"
+
+    def test_phpunit_xml_config_without_dep(self, tmp_path):
+        (tmp_path / "composer.json").write_text(json.dumps({"require-dev": {}}))
+        (tmp_path / "phpunit.xml").write_text("<phpunit/>")
+        result = detect_php_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+
+    def test_laravel_framework_detected(self, tmp_path):
+        composer = {
+            "require": {"laravel/framework": "^10.0", "php": "^8.1"},
+            "require-dev": {"phpunit/phpunit": "^10.0"},
+        }
+        (tmp_path / "composer.json").write_text(json.dumps(composer))
+        (tmp_path / "artisan").write_text("#!/usr/bin/env php\n")
+        result = detect_php_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "laravel"
+        assert "unit_test_dir" in result
+        assert "feature_test_dir" in result
+
+    def test_non_laravel_has_no_framework_key(self, tmp_path):
+        composer = {"require-dev": {"phpunit/phpunit": "^10.0"}}
+        (tmp_path / "composer.json").write_text(json.dumps(composer))
+        result = detect_php_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert "framework" not in result
+
+
+# ---------------------------------------------------------------------------
+# detect_go_runner
+# ---------------------------------------------------------------------------
+
+
+class TestDetectGoRunner:
+    def test_no_go_mod_returns_none(self, tmp_path):
+        assert detect_go_runner(str(tmp_path), str(tmp_path)) is None
+
+    def test_go_mod_present(self, tmp_path):
+        (tmp_path / "go.mod").write_text("module example.com/myapp\n\ngo 1.21\n")
+        result = detect_go_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["command"] == "go test"
+        assert result["style"] == "colocated"
+        assert "./..." in result["args"]
+
+
+# ---------------------------------------------------------------------------
+# detect_ruby_runner
+# ---------------------------------------------------------------------------
+
+
+class TestDetectRubyRunner:
+    def test_no_gemfile_returns_none(self, tmp_path):
+        assert detect_ruby_runner(str(tmp_path), str(tmp_path)) is None
+
+    def test_gemfile_without_rspec_or_minitest_returns_none(self, tmp_path):
+        (tmp_path / "Gemfile").write_text("source 'https://rubygems.org'\ngem 'rails'\n")
+        assert detect_ruby_runner(str(tmp_path), str(tmp_path)) is None
+
+    def test_rspec_gemfile(self, tmp_path):
+        (tmp_path / "Gemfile").write_text("source 'https://rubygems.org'\ngem 'rspec-rails'\n")
+        result = detect_ruby_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["command"] == "bundle exec rspec"
+        assert "spec/" in result["test_location"]
+
+    def test_minitest_gemfile(self, tmp_path):
+        (tmp_path / "Gemfile").write_text("source 'https://rubygems.org'\ngem 'minitest'\n")
+        result = detect_ruby_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert "rake test" in result["command"]
+        assert "test/" in result["test_location"]
+
+    def test_rails_framework_detected(self, tmp_path):
+        (tmp_path / "Gemfile").write_text(
+            "source 'https://rubygems.org'\ngem 'rails'\ngem 'rspec-rails'\n"
+        )
+        result = detect_ruby_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "rails"
+
+    def test_rspec_preferred_over_minitest(self, tmp_path):
+        (tmp_path / "Gemfile").write_text(
+            "source 'https://rubygems.org'\ngem 'rspec'\ngem 'minitest'\n"
+        )
+        result = detect_ruby_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["command"] == "bundle exec rspec"
+
+
+# ---------------------------------------------------------------------------
+# detect_rust_runner
+# ---------------------------------------------------------------------------
+
+
+class TestDetectRustRunner:
+    def test_no_cargo_toml_returns_none(self, tmp_path):
+        assert detect_rust_runner(str(tmp_path), str(tmp_path)) is None
+
+    def test_cargo_toml_present(self, tmp_path):
+        (tmp_path / "Cargo.toml").write_text("[package]\nname = \"myapp\"\nversion = \"0.1.0\"\n")
+        result = detect_rust_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["command"] == "cargo test"
+        assert result["style"] == "inline"
+        assert result["test_location"] == "inline"
+
+
+# ---------------------------------------------------------------------------
+# detect_java_runner
+# ---------------------------------------------------------------------------
+
+
+class TestDetectJavaRunner:
+    def test_no_build_file_returns_none(self, tmp_path):
+        assert detect_java_runner(str(tmp_path), str(tmp_path)) is None
+
+    def test_maven_pom_xml(self, tmp_path):
+        (tmp_path / "pom.xml").write_text("<project><modelVersion>4.0.0</modelVersion></project>")
+        result = detect_java_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["command"] == "./mvnw test"
+        assert result["test_location"] == "src/test/java/"
+
+    def test_gradle_build_gradle(self, tmp_path):
+        (tmp_path / "build.gradle").write_text("plugins { id 'java' }\n")
+        result = detect_java_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["command"] == "./gradlew test"
+
+    def test_spring_boot_detected_in_pom(self, tmp_path):
+        pom = (
+            "<project>\n"
+            "  <parent>\n"
+            "    <groupId>org.springframework.boot</groupId>\n"
+            "    <artifactId>spring-boot-starter-parent</artifactId>\n"
+            "  </parent>\n"
+            "</project>\n"
+        )
+        (tmp_path / "pom.xml").write_text(pom)
+        result = detect_java_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "spring"
+
+    def test_no_spring_no_framework_key(self, tmp_path):
+        (tmp_path / "pom.xml").write_text("<project><modelVersion>4.0.0</modelVersion></project>")
+        result = detect_java_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert "framework" not in result

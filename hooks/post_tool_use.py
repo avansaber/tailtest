@@ -147,6 +147,10 @@ GO_GENERATED_SUFFIXES: tuple[str, ...] = ("_mock.go", "_gen.go", ".pb.go")
 # JS/TS generated file suffixes
 JS_GENERATED_SUFFIXES: tuple[str, ...] = (".generated.ts", ".graphql.ts")
 
+# Languages that must have a configured runner in session.json to proceed.
+# Unlisted languages (python, typescript, javascript) may use the first available runner.
+RUNNER_REQUIRED_LANGUAGES: frozenset[str] = frozenset({"php", "go", "ruby", "rust", "java"})
+
 
 # ---------------------------------------------------------------------------
 # Pure helper functions (unit-tested directly)
@@ -332,13 +336,26 @@ def get_test_file_path(
     Does NOT check whether the file exists on disk.
     """
     runner_info = runners.get(language)
-    if not runner_info and runners:
+    if not runner_info and runners and language not in RUNNER_REQUIRED_LANGUAGES:
         runner_info = next(iter(runners.values()))
     if not runner_info:
         return None
 
-    test_location = runner_info.get("test_location", "tests/").rstrip("/")
     basename = os.path.splitext(os.path.basename(rel_path))[0]
+
+    if language == "rust":
+        # Rust tests are inline in the source file -- no separate test file
+        return None
+
+    if language == "go":
+        # Co-located: {same_dir}/{basename}_test.go
+        source_dir = os.path.dirname(rel_path)
+        test_filename = f"{basename}_test.go"
+        if source_dir:
+            return os.path.join(project_root, source_dir, test_filename)
+        return os.path.join(project_root, test_filename)
+
+    test_location = runner_info.get("test_location", "tests/").rstrip("/")
 
     if language == "python":
         test_filename = f"test_{basename}.py"
@@ -346,6 +363,22 @@ def get_test_file_path(
         test_filename = f"{basename}.test.ts"
     elif language == "javascript":
         test_filename = f"{basename}.test.js"
+    elif language == "ruby":
+        # rspec → _spec.rb, minitest → _test.rb
+        if "spec" in test_location:
+            test_filename = f"{basename}_spec.rb"
+        else:
+            test_filename = f"{basename}_test.rb"
+    elif language == "java":
+        test_filename = f"{basename}Test.java"
+    elif language == "php":
+        # Check both Unit and Feature dirs for existing test files (legacy-file lookup)
+        test_filename = f"{basename}Test.php"
+        for subdir in ("tests/Unit", "tests/Feature", "tests"):
+            candidate = os.path.join(project_root, subdir, test_filename)
+            if os.path.exists(candidate):
+                return candidate
+        return os.path.join(project_root, "tests/Unit", test_filename)
     else:
         return None
 
@@ -368,6 +401,28 @@ def build_legacy_context_note(
     )
 
 
+def detect_framework_context(
+    rel_path: str,
+    language: str,
+    runners: dict,
+) -> str:
+    """Return a framework context hint for the additionalContext note, or empty string."""
+    runner_info = runners.get(language)
+    if not runner_info:
+        return ""
+    framework = runner_info.get("framework")
+    style = runner_info.get("style")
+    if framework == "laravel":
+        if "/Http/" in rel_path or "/Controllers/" in rel_path:
+            return "laravel/feature"
+        return "laravel/unit"
+    if style == "inline":
+        return "rust/inline"
+    if style == "colocated":
+        return "go/colocated"
+    return framework or ""
+
+
 def build_context_note(
     rel_path: str,
     status: str,
@@ -382,7 +437,9 @@ def build_context_note(
     elif runners:
         runner_name = next(iter(runners.values())).get("command")
 
-    parts = [f"tailtest: {rel_path} queued ({status}, {language})"]
+    framework_ctx = detect_framework_context(rel_path, language, runners)
+    lang_info = f"{language}, {framework_ctx}" if framework_ctx else language
+    parts = [f"tailtest: {rel_path} queued ({status}, {lang_info})"]
     if pending_count > 1:
         parts.append(f"{pending_count} files pending")
     if runner_name:
@@ -428,6 +485,11 @@ def main() -> None:
     # No manifest found at session start → no runner → stay completely silent.
     # (Standalone scripts with no package manager are not tailtest targets.)
     if not session.get("runners"):
+        sys.exit(0)
+
+    # RUNNER_REQUIRED_LANGUAGES must have an explicitly configured runner.
+    # Unlike Python/TS/JS, these cannot be bootstrapped from a first-available fallback.
+    if language in RUNNER_REQUIRED_LANGUAGES and language not in session.get("runners", {}):
         sys.exit(0)
 
     touched_files: list[str] = session.get("touched_files", [])

@@ -88,8 +88,13 @@ Write the scenarios as executable test code to disk.
 | Python | `runners.python.test_location` from session.json, default `tests/` | `test_{source_basename}.py` |
 | TypeScript | `runners.typescript.test_location` from session.json, default `__tests__/` | `{source_basename}.test.ts` or `.test.tsx` |
 | JavaScript | `runners.javascript.test_location` from session.json, default `__tests__/` | `{source_basename}.test.js` |
+| Go | co-located: same directory as the source file | `{source_basename}_test.go` |
+| Rust | inline inside the source file (`#[cfg(test)]` module) | n/a -- see Scenario rules |
+| Ruby | `runners.ruby.test_location` from session.json | `{source_basename}_spec.rb` (rspec) or `{source_basename}_test.rb` (minitest) |
+| Java | `runners.java.test_location` from session.json, default `src/test/java/` | `{source_basename}Test.java` |
+| PHP | `runners.php.unit_test_dir` from session.json, default `tests/Unit/` | `{source_basename}Test.php` |
 
-**Example:** `services/billing.py` → `tests/test_billing.py`. `components/Button.tsx` → `__tests__/Button.test.tsx`.
+**Examples:** `services/billing.py` → `tests/test_billing.py`. `components/Button.tsx` → `__tests__/Button.test.tsx`. `internal/handler.go` → `internal/handler_test.go`.
 
 If the test file already exists, update it (add new scenarios, update tests for changed functions). Do not replace the entire file.
 
@@ -151,8 +156,20 @@ If source contains `while True:`, a daemon worker, or a polling entry point -- t
 **Celery tasks:**
 Tests must configure `task_always_eager=True` (Celery 4) or `CELERY_TASK_ALWAYS_EAGER=True` (Celery 5). Without it, `.delay()` silently queues without executing -- the test passes while testing nothing.
 
+**Go:**
+Test file is co-located in the same directory (`handler_test.go` beside `handler.go`). Use the same package name for white-box tests (`package mypackage`) or add `_test` suffix for black-box tests (`package mypackage_test`). Use `t.Run()` for subtests. Never call `os.Exit()` inside tests.
+
 **Rust:**
 Unit tests go inside the source file as `#[cfg(test)]` modules. Do not create a separate test file. Integration tests go in `tests/` only when testing public API surface.
+
+**FastAPI:**
+Use `TestClient` from `starlette.testclient` (included with FastAPI). Instantiate it with the app object: `client = TestClient(app)`. Call `client.get("/route")` etc. in tests. Patch database calls with `unittest.mock.patch` -- never hit a live database.
+
+**Java / Spring Boot:**
+Use `@SpringBootTest` for integration tests and `@WebMvcTest` for controller slice tests. Use `MockMvc` for controller tests, `@MockBean` for service dependencies. Annotate the test class with `@ExtendWith(SpringExtension.class)` if not using `@SpringBootTest`.
+
+**Nuxt:**
+Use `@nuxt/test-utils` (`mountSuspended`) for component tests, not `@vue/test-utils` `mount` directly. Set up the Nuxt test environment with `setup(() => setupNuxtTest({ ... }))` before tests. Server-only components (`.server.vue`) cannot be mounted -- skip them.
 
 **Laravel Feature tests:**
 Require a test database (`.env.testing`). If absent: generate the test file but do not run it. Add at the top: `// tailtest: not run -- .env.testing required. Run manually after setup.`

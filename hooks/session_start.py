@@ -74,12 +74,161 @@ def detect_python_runner(directory: str, project_root: str) -> Optional[dict]:
     if rel_loc == "./":
         rel_loc = raw_loc
 
-    return {
+    # Detect Python framework
+    framework = None
+    if os.path.exists(os.path.join(directory, "manage.py")):
+        framework = "django"
+    elif "fastapi" in text:
+        framework = "fastapi"
+
+    runner: dict = {
         "command": "pytest",
         "args": ["-q"],
         "test_location": rel_loc,
         "needs_bootstrap": not has_pytest,
     }
+    if framework:
+        runner["framework"] = framework
+    return runner
+
+
+def detect_php_runner(directory: str, project_root: str) -> Optional[dict]:
+    """Detect PHP test runner from composer.json and phpunit.xml.
+
+    Returns runner dict or None.  Sets framework='laravel' when artisan + laravel/framework present.
+    """
+    composer = _read_json(os.path.join(directory, "composer.json"))
+    if composer is None:
+        return None
+
+    require_dev: dict = composer.get("require-dev", {})
+    has_phpunit = any("phpunit" in k for k in require_dev)
+    has_config = (
+        os.path.exists(os.path.join(directory, "phpunit.xml")) or
+        os.path.exists(os.path.join(directory, "phpunit.xml.dist"))
+    )
+    if not has_phpunit and not has_config:
+        return None
+
+    require: dict = composer.get("require", {})
+    is_laravel = (
+        "laravel/framework" in require and
+        os.path.exists(os.path.join(directory, "artisan"))
+    )
+    runner: dict = {
+        "command": "./vendor/bin/phpunit",
+        "args": [],
+        "test_location": "tests/",
+    }
+    if is_laravel:
+        runner["framework"] = "laravel"
+        runner["unit_test_dir"] = "tests/Unit/"
+        runner["feature_test_dir"] = "tests/Feature/"
+    return runner
+
+
+def detect_go_runner(directory: str, project_root: str) -> Optional[dict]:
+    """Detect Go test runner from go.mod.
+
+    Tests are co-located with source (same package directory).
+    """
+    if not os.path.exists(os.path.join(directory, "go.mod")):
+        return None
+    return {
+        "command": "go test",
+        "args": ["./..."],
+        "test_location": ".",
+        "style": "colocated",
+    }
+
+
+def detect_ruby_runner(directory: str, project_root: str) -> Optional[dict]:
+    """Detect Ruby test runner from Gemfile.
+
+    Returns runner dict (rspec or minitest) or None.  Sets framework='rails' when detected.
+    """
+    gemfile_path = os.path.join(directory, "Gemfile")
+    if not os.path.exists(gemfile_path):
+        return None
+    try:
+        content = open(gemfile_path).read()
+    except OSError:
+        return None
+
+    has_rspec = "rspec" in content
+    has_minitest = "minitest" in content
+    if not has_rspec and not has_minitest:
+        return None
+
+    is_rails = "rails" in content
+
+    if has_rspec:
+        raw_loc = "spec/"
+        command = "bundle exec rspec"
+    else:
+        raw_loc = "test/"
+        command = "bundle exec rake test"
+
+    abs_loc = os.path.join(directory, raw_loc.rstrip("/"))
+    rel_loc = os.path.relpath(abs_loc, project_root).replace("\\", "/") + "/"
+    if rel_loc == "./":
+        rel_loc = raw_loc
+
+    runner: dict = {"command": command, "args": [], "test_location": rel_loc}
+    if is_rails:
+        runner["framework"] = "rails"
+    return runner
+
+
+def detect_rust_runner(directory: str, project_root: str) -> Optional[dict]:
+    """Detect Rust test runner from Cargo.toml.
+
+    Tests are inline in source files (#[cfg(test)] modules).
+    """
+    if not os.path.exists(os.path.join(directory, "Cargo.toml")):
+        return None
+    return {
+        "command": "cargo test",
+        "args": [],
+        "test_location": "inline",
+        "style": "inline",
+    }
+
+
+def detect_java_runner(directory: str, project_root: str) -> Optional[dict]:
+    """Detect Java test runner from pom.xml (Maven) or build.gradle (Gradle).
+
+    Returns runner dict or None.  Sets framework='spring' when spring-boot detected.
+    """
+    has_maven = os.path.exists(os.path.join(directory, "pom.xml"))
+    has_gradle = (
+        os.path.exists(os.path.join(directory, "build.gradle")) or
+        os.path.exists(os.path.join(directory, "build.gradle.kts"))
+    )
+    if not has_maven and not has_gradle:
+        return None
+
+    command = "./mvnw test" if has_maven else "./gradlew test"
+    framework = None
+    try:
+        build_file = "pom.xml" if has_maven else (
+            "build.gradle" if os.path.exists(os.path.join(directory, "build.gradle"))
+            else "build.gradle.kts"
+        )
+        content = open(os.path.join(directory, build_file)).read()
+        if "spring-boot" in content:
+            framework = "spring"
+    except OSError:
+        pass
+
+    runner: dict = {
+        "command": command,
+        "args": [],
+        "test_location": "src/test/java/",
+    }
+    if framework:
+        runner["framework"] = framework
+    return runner
 
 
 def detect_node_runner(directory: str, project_root: str) -> Optional[dict]:
@@ -114,12 +263,22 @@ def detect_node_runner(directory: str, project_root: str) -> Optional[dict]:
     command = "vitest" if has_vitest else ("jest" if has_jest else "vitest")
     args = ["run"] if command == "vitest" else ["--passWithNoTests"]
 
-    return {
+    # Detect JS framework
+    framework = None
+    if "next" in all_deps:
+        framework = "nextjs"
+    elif "nuxt" in all_deps or os.path.exists(os.path.join(directory, "nuxt.config.ts")) or os.path.exists(os.path.join(directory, "nuxt.config.js")):
+        framework = "nuxt"
+
+    runner: dict = {
         "command": command,
         "args": args,
         "test_location": rel_loc,
         "needs_bootstrap": not (has_vitest or has_jest),
     }
+    if framework:
+        runner["framework"] = framework
+    return runner
 
 
 def _find_test_location(directory: str, language: str) -> Optional[str]:
@@ -158,6 +317,21 @@ def scan_runners(project_root: str) -> dict:
                 runners["typescript"] = node
             else:
                 runners["javascript"] = node
+        php = detect_php_runner(directory, project_root)
+        if php and "php" not in runners:
+            runners["php"] = php
+        go_r = detect_go_runner(directory, project_root)
+        if go_r and "go" not in runners:
+            runners["go"] = go_r
+        ruby = detect_ruby_runner(directory, project_root)
+        if ruby and "ruby" not in runners:
+            runners["ruby"] = ruby
+        rust = detect_rust_runner(directory, project_root)
+        if rust and "rust" not in runners:
+            runners["rust"] = rust
+        java = detect_java_runner(directory, project_root)
+        if java and "java" not in runners:
+            runners["java"] = java
 
     _try_dir(project_root)
 
