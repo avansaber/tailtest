@@ -116,7 +116,7 @@
     {
       "session_id": "2026-04-13T10-30-00-a1b2c3",
       "started_at": "2026-04-13T10:30:00Z",
-      "project_root": "/Users/nikhil/projects/inventory",
+      "project_root": "/home/user/projects/inventory",
       "runners": {
         "php": { "command": "phpunit", "args": [], "test_location": "tests/" }
       },
