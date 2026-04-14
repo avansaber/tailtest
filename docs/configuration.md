@@ -24,6 +24,8 @@ Create `.tailtest/config.json` at your project root to change the scenario depth
 
 `standard` is the right default for most sessions.
 
+**Depth is set once at session start.** If you create or edit `.tailtest/config.json` while a session is already running, the change will not take effect until you start a new Claude Code session. The active depth for the current session is stored in `.tailtest/session.json` -- check the `depth` field there to confirm what is in use.
+
 ## Silencing specific paths
 
 Add a `.tailtest-ignore` file at your project root. Uses gitignore syntax. Lines starting with `#` are comments.
