@@ -471,6 +471,110 @@ def build_style_context(project_root: str, runners: dict) -> Optional[str]:
     return "\n".join(lines)
 
 
+def detect_monorepo(project_root: str) -> bool:
+    """Return True if this project looks like a monorepo workspace.
+
+    Detects via known workspace config files OR by finding multiple
+    package.json files at immediate subdirectory level.
+    """
+    markers = (
+        "pnpm-workspace.yaml",
+        "nx.json",
+        "turbo.json",
+        "lerna.json",
+        "rush.json",
+    )
+    for marker in markers:
+        if os.path.exists(os.path.join(project_root, marker)):
+            return True
+
+    # Two or more immediate subdirs with their own package manifests
+    _skip = {"node_modules", ".venv", "venv", ".git", "dist", "build", "__pycache__", "vendor"}
+    count = 0
+    try:
+        for entry in os.scandir(project_root):
+            if not entry.is_dir() or entry.name.startswith(".") or entry.name in _skip:
+                continue
+            if (
+                os.path.exists(os.path.join(entry.path, "package.json"))
+                or os.path.exists(os.path.join(entry.path, "pyproject.toml"))
+                or os.path.exists(os.path.join(entry.path, "composer.json"))
+            ):
+                count += 1
+                if count >= 2:
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+def scan_packages(project_root: str) -> dict:
+    """Scan for per-package runners in a monorepo.
+
+    Returns a dict keyed by the package's relative path (forward-slash):
+      {"packages/web": {"typescript": {...}}, "packages/api": {"python": {...}}}
+
+    Scans up to two directory levels deep, skipping common noise directories.
+    Each detected package stores runners with test_location relative to project_root
+    (same convention as scan_runners).
+    """
+    packages: dict = {}
+    _skip = {
+        "node_modules", ".venv", "venv", ".git", "dist", "build",
+        "__pycache__", "vendor", ".svelte-kit", ".next", ".nuxt",
+    }
+
+    def _try_package(directory: str) -> None:
+        rel = os.path.relpath(directory, project_root).replace("\\", "/")
+        if rel == ".":
+            return
+        runners: dict = {}
+        py = detect_python_runner(directory, project_root)
+        if py:
+            runners["python"] = {k: v for k, v in py.items() if k != "needs_bootstrap"}
+        node = detect_node_runner(directory, project_root)
+        if node:
+            key = "typescript" if os.path.exists(
+                os.path.join(directory, "tsconfig.json")
+            ) else "javascript"
+            runners[key] = {k: v for k, v in node.items() if k != "needs_bootstrap"}
+        php = detect_php_runner(directory, project_root)
+        if php:
+            runners["php"] = php
+        go_r = detect_go_runner(directory, project_root)
+        if go_r:
+            runners["go"] = go_r
+        ruby = detect_ruby_runner(directory, project_root)
+        if ruby:
+            runners["ruby"] = ruby
+        rust = detect_rust_runner(directory, project_root)
+        if rust:
+            runners["rust"] = rust
+        java = detect_java_runner(directory, project_root)
+        if java:
+            runners["java"] = java
+        if runners:
+            packages[rel] = runners
+
+    try:
+        for entry in os.scandir(project_root):
+            if not entry.is_dir() or entry.name.startswith(".") or entry.name in _skip:
+                continue
+            _try_package(entry.path)
+            # Depth 2
+            try:
+                for sub in os.scandir(entry.path):
+                    if not sub.is_dir() or sub.name.startswith(".") or sub.name in _skip:
+                        continue
+                    _try_package(sub.path)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+    return packages
+
+
 def scan_runners(project_root: str) -> dict:
     """Scan project root and immediate subdirectories for runners.
 
@@ -573,6 +677,8 @@ def make_session_id() -> str:
 
 def create_session(project_root: str, runners: dict, depth: str) -> dict:
     """Build and write a fresh session.json.  Returns the dict."""
+    packages = scan_packages(project_root) if detect_monorepo(project_root) else {}
+
     session = {
         "session_id": make_session_id(),
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -585,6 +691,7 @@ def create_session(project_root: str, runners: dict, depth: str) -> dict:
         "fix_attempts": {},
         "deferred_failures": [],
         "generated_tests": {},
+        "packages": packages,
     }
     tailtest_dir = os.path.join(project_root, ".tailtest")
     os.makedirs(tailtest_dir, exist_ok=True)

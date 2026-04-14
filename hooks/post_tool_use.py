@@ -291,6 +291,27 @@ def determine_status(
     return "legacy-file" if tracked else "new-file"
 
 
+def find_package_root(
+    rel_path: str,
+    packages: dict,
+) -> Optional[str]:
+    """Return the relative path of the deepest package containing rel_path.
+
+    packages: dict keyed by package relative paths (e.g. "packages/web").
+    Returns the key of the best match, or None if no package contains the file.
+    """
+    rel_path = _norm(rel_path)
+    best: Optional[str] = None
+    best_len = -1
+    for pkg_rel in packages:
+        pkg_prefix = _norm(pkg_rel).rstrip("/") + "/"
+        if rel_path.startswith(pkg_prefix):
+            if len(pkg_prefix) > best_len:
+                best_len = len(pkg_prefix)
+                best = pkg_rel
+    return best
+
+
 def load_session(project_root: str) -> dict:
     """Load .tailtest/session.json.  Returns minimal empty dict if absent."""
     session_path = os.path.join(project_root, ".tailtest", "session.json")
@@ -307,6 +328,7 @@ def load_session(project_root: str) -> dict:
         "fix_attempts": {},
         "deferred_failures": [],
         "generated_tests": {},
+        "packages": {},
     }
 
 
@@ -548,18 +570,32 @@ def main() -> None:
 
     session = load_session(project_root)
 
+    global_runners: dict = session.get("runners", {})
+    packages: dict = session.get("packages", {})
+
     # No manifest found at session start → no runner → stay completely silent.
     # (Standalone scripts with no package manager are not tailtest targets.)
-    if not session.get("runners"):
-        sys.exit(0)
-
-    # RUNNER_REQUIRED_LANGUAGES must have an explicitly configured runner.
-    # Unlike Python/TS/JS, these cannot be bootstrapped from a first-available fallback.
-    if language in RUNNER_REQUIRED_LANGUAGES and language not in session.get("runners", {}):
+    if not global_runners and not packages:
         sys.exit(0)
 
     touched_files: list[str] = session.get("touched_files", [])
     rel_path = _norm(os.path.relpath(os.path.abspath(file_path), project_root))
+
+    # Resolve effective runners: prefer per-package runners when file lives in a package.
+    runners: dict = global_runners
+    if packages:
+        pkg_key = find_package_root(rel_path, packages)
+        if pkg_key:
+            runners = packages[pkg_key]
+
+    # RUNNER_REQUIRED_LANGUAGES must have an explicitly configured runner.
+    # Unlike Python/TS/JS, these cannot be bootstrapped from a first-available fallback.
+    if language in RUNNER_REQUIRED_LANGUAGES and language not in runners:
+        sys.exit(0)
+
+    # Also silently exit when no runners resolved at all for this file.
+    if not runners:
+        sys.exit(0)
 
     status = determine_status(file_path, project_root, touched_files)
 
@@ -567,8 +603,6 @@ def main() -> None:
     if rel_path not in touched_files:
         touched_files.append(rel_path)
         session["touched_files"] = touched_files
-
-    runners: dict = session.get("runners", {})
 
     if status == "legacy-file":
         # Legacy files do NOT go into pending_files.

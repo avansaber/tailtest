@@ -19,6 +19,7 @@ from session_start import (
     detect_custom_helpers,
     detect_go_runner,
     detect_java_runner,
+    detect_monorepo,
     detect_node_runner,
     detect_php_runner,
     detect_project_type,
@@ -28,6 +29,7 @@ from session_start import (
     extract_style_snippet,
     find_recent_test_files,
     read_depth,
+    scan_packages,
     scan_runners,
 )
 
@@ -807,3 +809,94 @@ class TestBuildStartupContextStyleIntegration:
         runners = {"python": {"command": "pytest", "args": ["-q"], "test_location": "tests/"}}
         ctx = build_startup_context(str(tmp_path), runners, "standard", "")
         assert "tailtest style context" not in ctx
+
+
+# ---------------------------------------------------------------------------
+# detect_monorepo
+# ---------------------------------------------------------------------------
+
+
+class TestDetectMonorepo:
+    def test_turbo_json_detected(self, tmp_path):
+        (tmp_path / "turbo.json").write_text('{"pipeline":{}}')
+        assert detect_monorepo(str(tmp_path)) is True
+
+    def test_nx_json_detected(self, tmp_path):
+        (tmp_path / "nx.json").write_text('{}')
+        assert detect_monorepo(str(tmp_path)) is True
+
+    def test_pnpm_workspace_yaml_detected(self, tmp_path):
+        (tmp_path / "pnpm-workspace.yaml").write_text("packages:\n  - 'packages/*'\n")
+        assert detect_monorepo(str(tmp_path)) is True
+
+    def test_multiple_package_json_subdirs_detected(self, tmp_path):
+        (tmp_path / "packages").mkdir()
+        (tmp_path / "packages" / "web").mkdir()
+        (tmp_path / "packages" / "api").mkdir()
+        (tmp_path / "packages" / "web" / "package.json").write_text('{"name":"web"}')
+        (tmp_path / "packages" / "api" / "package.json").write_text('{"name":"api"}')
+        # Both are subdirs of packages/, not direct subdirs of tmp_path → count stays 1
+        assert detect_monorepo(str(tmp_path)) is False  # only 1 direct subdir with manifest
+
+    def test_multiple_direct_subdirs_with_manifests(self, tmp_path):
+        for name in ("web", "api"):
+            (tmp_path / name).mkdir()
+            (tmp_path / name / "package.json").write_text(f'{{"name":"{name}"}}')
+        assert detect_monorepo(str(tmp_path)) is True
+
+    def test_flat_project_returns_false(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+        assert detect_monorepo(str(tmp_path)) is False
+
+
+# ---------------------------------------------------------------------------
+# scan_packages
+# ---------------------------------------------------------------------------
+
+
+class TestScanPackages:
+    def test_finds_python_package_at_depth_2(self, tmp_path):
+        pkg_dir = tmp_path / "packages" / "api"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "pyproject.toml").write_text(
+            "[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\n"
+        )
+        result = scan_packages(str(tmp_path))
+        assert "packages/api" in result
+        assert "python" in result["packages/api"]
+
+    def test_finds_node_package_at_depth_2(self, tmp_path):
+        pkg_dir = tmp_path / "packages" / "web"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "package.json").write_text(
+            '{"devDependencies":{"vitest":"^1.0.0"}}'
+        )
+        result = scan_packages(str(tmp_path))
+        assert "packages/web" in result
+        assert "javascript" in result["packages/web"] or "typescript" in result["packages/web"]
+
+    def test_skips_node_modules(self, tmp_path):
+        nm = tmp_path / "node_modules" / "some-pkg"
+        nm.mkdir(parents=True)
+        (nm / "package.json").write_text('{"name":"some-pkg"}')
+        result = scan_packages(str(tmp_path))
+        assert not any("node_modules" in k for k in result)
+
+    def test_does_not_include_project_root(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+        result = scan_packages(str(tmp_path))
+        # "." (project root) should never appear as a key
+        assert "." not in result
+
+    def test_test_location_is_project_root_relative(self, tmp_path):
+        pkg_dir = tmp_path / "packages" / "api"
+        pkg_dir.mkdir(parents=True)
+        tests_dir = pkg_dir / "tests"
+        tests_dir.mkdir()
+        (pkg_dir / "pyproject.toml").write_text(
+            "[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\n"
+        )
+        result = scan_packages(str(tmp_path))
+        py_runner = result.get("packages/api", {}).get("python", {})
+        # test_location should be relative to project_root: "packages/api/tests/"
+        assert "packages/api" in py_runner.get("test_location", "")

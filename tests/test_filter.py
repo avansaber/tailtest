@@ -16,6 +16,7 @@ from post_tool_use import (
     detect_language,
     detect_framework_context,
     extract_file_path,
+    find_package_root,
     is_filtered,
     is_test_file,
     build_context_note,
@@ -865,3 +866,156 @@ class TestMainGeneratedTestsIntegration:
         note = out["hookSpecificOutput"]["additionalContext"]
         assert "write test to" in note
         assert "update existing test" not in note
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: find_package_root
+# ---------------------------------------------------------------------------
+
+
+class TestFindPackageRoot:
+    def test_file_in_package_returns_package(self):
+        packages = {"packages/api": {"python": {}}}
+        assert find_package_root("packages/api/src/billing.py", packages) == "packages/api"
+
+    def test_file_not_in_any_package_returns_none(self):
+        packages = {"packages/api": {"python": {}}}
+        assert find_package_root("src/billing.py", packages) is None
+
+    def test_deepest_package_wins_over_shallower(self):
+        # "packages/api" is deeper than "packages" -- should win
+        packages = {"packages": {"python": {}}, "packages/api": {"python": {}}}
+        assert find_package_root("packages/api/src/billing.py", packages) == "packages/api"
+
+    def test_empty_packages_returns_none(self):
+        assert find_package_root("services/billing.py", {}) is None
+
+    def test_sibling_package_does_not_match(self):
+        packages = {"packages/web": {"typescript": {}}, "packages/api": {"python": {}}}
+        assert find_package_root("packages/web/src/Button.tsx", packages) == "packages/web"
+        assert find_package_root("packages/api/src/billing.py", packages) == "packages/api"
+
+    def test_backslash_path_normalised(self):
+        packages = {"packages/api": {"python": {}}}
+        assert find_package_root("packages\\api\\src\\billing.py", packages) == "packages/api"
+
+    def test_file_at_package_root(self):
+        packages = {"packages/api": {"python": {}}}
+        assert find_package_root("packages/api/index.py", packages) == "packages/api"
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: monorepo runner resolution integration
+# ---------------------------------------------------------------------------
+
+
+class TestMonorepoRunnerResolutionIntegration:
+    """Integration tests: hook uses per-package runners when file is in a package."""
+
+    def _write_session(self, tmpdir: str, global_runners: dict, packages: dict) -> None:
+        tailtest = os.path.join(tmpdir, ".tailtest")
+        os.makedirs(tailtest, exist_ok=True)
+        session = {
+            "session_id": "test-456",
+            "started_at": "2026-01-01T00:00:00Z",
+            "project_root": tmpdir,
+            "runners": global_runners,
+            "packages": packages,
+            "depth": "standard",
+            "pending_files": [],
+            "touched_files": [],
+            "fix_attempts": {},
+            "deferred_failures": {},
+            "generated_tests": {},
+        }
+        with open(os.path.join(tailtest, "session.json"), "w") as fh:
+            json.dump(session, fh)
+
+    def _write_source(self, tmpdir: str, rel_path: str) -> str:
+        abs_path = os.path.join(tmpdir, rel_path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, "w") as fh:
+            fh.write("def add(a, b): return a + b\n")
+        return abs_path
+
+    def test_file_in_package_uses_package_runner(self, tmp_path):
+        tmpdir = str(tmp_path)
+        source_rel = "packages/api/services/billing.py"
+        self._write_source(tmpdir, source_rel)
+        pkg_runner = {
+            "python": {
+                "command": "pytest",
+                "args": ["-q"],
+                "test_location": "packages/api/tests/",
+            }
+        }
+        self._write_session(tmpdir, global_runners={}, packages={"packages/api": pkg_runner})
+
+        result = subprocess.run(
+            [sys.executable, HOOK_PATH],
+            input=json.dumps({
+                "tool_name": "Write",
+                "tool_input": {"file_path": os.path.join(tmpdir, source_rel)},
+                "cwd": tmpdir,
+            }),
+            capture_output=True, text=True,
+        )
+        out = json.loads(result.stdout)
+        note = out["hookSpecificOutput"]["additionalContext"]
+        assert "pytest" in note
+        # test path should be inside the package's test_location
+        assert "packages/api/tests" in note
+
+    def test_file_outside_all_packages_uses_global_runner(self, tmp_path):
+        tmpdir = str(tmp_path)
+        source_rel = "shared/utils.py"
+        self._write_source(tmpdir, source_rel)
+        global_runner = {
+            "python": {
+                "command": "pytest",
+                "args": ["-q"],
+                "test_location": "tests/",
+            }
+        }
+        pkg_runner = {
+            "python": {
+                "command": "pytest",
+                "args": ["-q"],
+                "test_location": "packages/api/tests/",
+            }
+        }
+        self._write_session(
+            tmpdir, global_runners=global_runner, packages={"packages/api": pkg_runner}
+        )
+
+        result = subprocess.run(
+            [sys.executable, HOOK_PATH],
+            input=json.dumps({
+                "tool_name": "Write",
+                "tool_input": {"file_path": os.path.join(tmpdir, source_rel)},
+                "cwd": tmpdir,
+            }),
+            capture_output=True, text=True,
+        )
+        out = json.loads(result.stdout)
+        note = out["hookSpecificOutput"]["additionalContext"]
+        assert "pytest" in note
+        # Should use root tests/ not packages/api/tests/
+        assert "tests/test_utils.py" in note
+
+    def test_no_runners_at_all_exits_silently(self, tmp_path):
+        tmpdir = str(tmp_path)
+        source_rel = "services/billing.py"
+        self._write_source(tmpdir, source_rel)
+        self._write_session(tmpdir, global_runners={}, packages={})
+
+        result = subprocess.run(
+            [sys.executable, HOOK_PATH],
+            input=json.dumps({
+                "tool_name": "Write",
+                "tool_input": {"file_path": os.path.join(tmpdir, source_rel)},
+                "cwd": tmpdir,
+            }),
+            capture_output=True, text=True,
+        )
+        assert result.stdout == ""

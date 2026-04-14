@@ -94,6 +94,26 @@
       "additionalProperties": { "type": "string" },
       "examples": [{ "services/billing.py": "tests/test_billing.py", "lib/pricing.ts": "__tests__/pricing.test.ts" }]
     },
+    "packages": {
+      "type": "object",
+      "description": "Per-package runners for monorepo projects. Keyed by package path relative to project_root (e.g. 'packages/api'). Each value is a runners dict identical in structure to the top-level runners field. Written once by session_start.py when a monorepo is detected. Empty for flat projects.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "required": ["command", "args", "test_location"],
+          "properties": {
+            "command": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "test_location": { "type": "string" }
+          }
+        }
+      },
+      "examples": [{
+        "packages/api": { "python": { "command": "pytest", "args": ["-q"], "test_location": "packages/api/tests/" } },
+        "packages/web": { "typescript": { "command": "vitest", "args": ["run"], "test_location": "packages/web/__tests__/" } }
+      }]
+    },
     "deferred_failures": {
       "type": "array",
       "description": "Failures the user explicitly chose not to fix this session. Not resurfaced unless the relevant file is edited again.",
