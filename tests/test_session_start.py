@@ -77,6 +77,14 @@ class TestDetectPythonRunner:
         result = detect_python_runner(str(tmp_path), str(tmp_path))
         assert "tests/" in result["test_location"]
 
+    def test_test_dir_without_s_used_when_present(self, tmp_path):
+        # Criterion 3: projects with test/ (no s) should route there, not tests/
+        (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+        (tmp_path / "test").mkdir()  # test/, not tests/
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["test_location"].endswith("test/")
+
     def test_django_framework_detected(self, tmp_path):
         (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
         (tmp_path / "manage.py").write_text("#!/usr/bin/env python\n")
