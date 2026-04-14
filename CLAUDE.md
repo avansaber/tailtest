@@ -272,12 +272,12 @@ After outputting the summary to the conversation, also write the same content to
 
 ## /tailtest off and /tailtest on commands
 
-When the user types `/tailtest off`:
+When the user types `/tailtest off`, `tailtest off`, or any natural variant (pause tailtest, stop tailtest, disable tailtest):
 1. Read `.tailtest/session.json`
 2. Set `paused: true` and write it back
 3. Respond: "tailtest paused. Type /tailtest on to resume."
 
-When the user types `/tailtest on`:
+When the user types `/tailtest on`, `tailtest on`, or any natural variant (resume tailtest, enable tailtest, unpause tailtest):
 1. Read `.tailtest/session.json`
 2. Set `paused: false` and write it back
 3. Respond: "tailtest resumed."

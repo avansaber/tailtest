@@ -43,22 +43,24 @@ You can also ask in plain language: "what did you test?" or "tailtest summary" -
 
 ---
 
-## `/tailtest off` and `/tailtest on`
+## `tailtest off` and `tailtest on`
 
 Pause or resume tailtest for the current session.
 
-**`/tailtest off`** stops tailtest from running on file edits. Changes you make while paused are not tested. Useful when iterating quickly on something you know is incomplete.
+**`tailtest off`** stops tailtest from running on file edits. Changes you make while paused are not tested. Useful when iterating quickly on something you know is incomplete.
 
-**`/tailtest on`** resumes normal behaviour.
+**`tailtest on`** resumes normal behaviour.
 
 The pause state is not persisted across sessions -- tailtest always starts active.
 
+Type the command in the chat exactly as shown. Claude understands natural variants too: "pause tailtest", "resume tailtest", "disable tailtest".
+
 **Example:**
 ```
-> /tailtest off
+> tailtest off
 tailtest paused. Type /tailtest on to resume.
 
-> /tailtest on
+> tailtest on
 tailtest resumed.
 ```
 

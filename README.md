@@ -131,8 +131,8 @@ No configuration needed. Detection is automatic at session start.
 |---|---|
 | `/t <file>` | Generate or update tests for any file on demand -- works on existing files tailtest would normally skip |
 | `/summary` | Show what tailtest tested this session, what passed, what was fixed, what was deferred |
-| `/tailtest off` | Pause tailtest for the current session. No tests run until you resume. |
-| `/tailtest on` | Resume tailtest after pausing. |
+| `tailtest off` | Pause tailtest for the current session. No tests run until you resume. |
+| `tailtest on` | Resume tailtest after pausing. |
 
 ---
 
