@@ -514,11 +514,17 @@ class TestGetTestFilePath:
 
     # --- Phase 2: PHP ---
 
-    def test_php_default_unit_dir(self):
-        runners = {"php": {"command": "./vendor/bin/phpunit", "args": [], "test_location": "tests/", "unit_test_dir": "tests/Unit/"}}
+    def test_php_controller_routes_to_feature(self):
+        runners = {"php": {"command": "./vendor/bin/phpunit", "args": [], "test_location": "tests/", "unit_test_dir": "tests/Unit/", "feature_test_dir": "tests/Feature/"}}
         path = get_test_file_path("app/Http/Controllers/UserController.php", "php", runners, "/project")
-        # No existing test file on disk -> falls back to tests/Unit/
-        assert path == "/project/tests/Unit/UserControllerTest.php"
+        # Controllers in Http/Controllers -> Feature test dir
+        assert path == "/project/tests/Feature/UserControllerTest.php"
+
+    def test_php_service_routes_to_unit(self):
+        runners = {"php": {"command": "./vendor/bin/phpunit", "args": [], "test_location": "tests/", "unit_test_dir": "tests/Unit/"}}
+        path = get_test_file_path("app/Services/OrderService.php", "php", runners, "/project")
+        # Services -> Unit test dir
+        assert path == "/project/tests/Unit/OrderServiceTest.php"
 
     def test_php_requires_configured_runner(self):
         path = get_test_file_path("app/Http/Controllers/UserController.php", "php", self.PYTHON_RUNNERS, "/project")
@@ -614,3 +620,46 @@ class TestDetectFrameworkContext:
         note = build_context_note("services/billing.py", "new-file", "python", 1, runners)
         assert "go/colocated" not in note
         assert "billing.py" in note
+
+    def test_context_note_includes_test_path_single_file(self):
+        # Single-file queue with project_root → exact test path included
+        runners = {"python": {"command": "pytest", "args": ["-q"], "test_location": "tests/"}}
+        note = build_context_note(
+            "services/billing.py", "new-file", "python", 1, runners, "/project"
+        )
+        assert "tests/test_billing.py" in note
+
+    def test_context_note_go_test_path(self):
+        note = build_context_note(
+            "internal/handler.go", "new-file", "go", 1, self.GO_RUNNERS, "/project"
+        )
+        assert "internal/handler_test.go" in note
+
+    def test_context_note_rust_inline_hint(self):
+        note = build_context_note(
+            "src/lib.rs", "new-file", "rust", 1, self.RUST_RUNNERS, "/project"
+        )
+        assert "add #[cfg(test)]" in note
+        assert "src/lib.rs" in note
+
+    def test_context_note_laravel_feature_path(self):
+        note = build_context_note(
+            "app/Http/Controllers/UserController.php",
+            "new-file", "php", 1, self.LARAVEL_RUNNERS, "/project"
+        )
+        assert "tests/Feature/UserControllerTest.php" in note
+
+    def test_context_note_multi_file_no_path(self):
+        # Multi-file queue → no test path hint (too ambiguous)
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        note = build_context_note(
+            "services/billing.py", "new-file", "python", 3, runners, "/project"
+        )
+        assert "test_billing.py" not in note
+        assert "3 files pending" in note
+
+    def test_context_note_no_project_root_no_path(self):
+        # No project_root → no test path hint (backwards compatible)
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        note = build_context_note("services/billing.py", "new-file", "python", 1, runners)
+        assert "test_billing.py" not in note

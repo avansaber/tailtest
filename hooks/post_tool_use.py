@@ -378,7 +378,13 @@ def get_test_file_path(
             candidate = os.path.join(project_root, subdir, test_filename)
             if os.path.exists(candidate):
                 return candidate
-        return os.path.join(project_root, "tests/Unit", test_filename)
+        # New file: route Unit vs Feature based on source path (Laravel convention)
+        is_feature = "/Http/" in rel_path or "/Controllers/" in rel_path
+        if is_feature:
+            feature_dir = runner_info.get("feature_test_dir", "tests/Feature").rstrip("/")
+            return os.path.join(project_root, feature_dir, test_filename)
+        unit_dir = runner_info.get("unit_test_dir", "tests/Unit").rstrip("/")
+        return os.path.join(project_root, unit_dir, test_filename)
     else:
         return None
 
@@ -429,6 +435,7 @@ def build_context_note(
     language: str,
     pending_count: int,
     runners: dict,
+    project_root: Optional[str] = None,
 ) -> str:
     """Build the one-line additionalContext note for Claude (new-file path)."""
     runner_name: Optional[str] = None
@@ -440,6 +447,18 @@ def build_context_note(
     framework_ctx = detect_framework_context(rel_path, language, runners)
     lang_info = f"{language}, {framework_ctx}" if framework_ctx else language
     parts = [f"tailtest: {rel_path} queued ({status}, {lang_info})"]
+
+    # For single-file queues, include the exact target path so Claude doesn't
+    # have to infer it from CLAUDE.md rules (same approach as legacy-file note).
+    if pending_count == 1 and project_root:
+        test_abs = get_test_file_path(rel_path, language, runners, project_root)
+        if test_abs is None and language == "rust":
+            # Rust: tests are inline in the source file
+            parts.append(f"add #[cfg(test)] block to {rel_path}")
+        elif test_abs:
+            test_rel = _norm(os.path.relpath(test_abs, project_root))
+            parts.append(f"write test to {test_rel}")
+
     if pending_count > 1:
         parts.append(f"{pending_count} files pending")
     if runner_name:
@@ -545,6 +564,7 @@ def main() -> None:
         language,
         len(pending_files),
         runners,
+        project_root,
     )
     print(json.dumps({"hookSpecificOutput": {"additionalContext": context}}))
 
