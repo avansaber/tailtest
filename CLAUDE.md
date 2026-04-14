@@ -94,6 +94,8 @@ Try each tier in order. Stop at the first that works.
 
 Simulation is the floor. There is no code you wrote that you cannot reason about.
 
+**Compile check before running:** for Python files, run `python3 -c "import ast; ast.parse(open('file').read())"`. For TypeScript, run `tsc --noEmit` if `tsconfig.json` is present. If this fails, retry the compile check once silently after auto-fixing. If it fails a second time, stop -- surface: "Compilation error in [file] -- [error]. Want me to fix it?" Do not loop past two attempts.
+
 **Compilation failure** is not a test failure. If the runner exits because code does not compile: "This change broke compilation -- [error]. Want me to fix it?"
 
 **All-paths-fail** is not silence. Surface: "Could not verify [file] -- [reason]."

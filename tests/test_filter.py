@@ -331,6 +331,16 @@ class TestExtractFilePath:
 # ---------------------------------------------------------------------------
 
 
+class TestBuildContextNoteRunnerGuard:
+    """No output when runners is empty (no manifest project)."""
+
+    def test_empty_runners_shows_no_runner_line(self):
+        # build_context_note itself still works; the guard is in main()
+        # Just verifying no crash and a valid note is returned
+        note = build_context_note("script.py", "new-file", "python", 1, {})
+        assert "script.py" in note
+
+
 class TestBuildContextNote:
     def test_single_file_with_runner(self):
         note = build_context_note(

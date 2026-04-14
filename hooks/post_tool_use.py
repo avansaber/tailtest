@@ -372,6 +372,12 @@ def main() -> None:
         sys.exit(0)
 
     session = load_session(project_root)
+
+    # No manifest found at session start → no runner → stay completely silent.
+    # (Standalone scripts with no package manager are not tailtest targets.)
+    if not session.get("runners"):
+        sys.exit(0)
+
     touched_files: list[str] = session.get("touched_files", [])
     rel_path = _norm(os.path.relpath(os.path.abspath(file_path), project_root))
 

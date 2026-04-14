@@ -401,8 +401,10 @@ def main() -> None:
 
         context = build_startup_context(project_root, runners, depth, claude_md)
 
+    # For SessionStart, plain stdout is added to Claude's context directly.
+    # hookSpecificOutput.additionalContext does NOT work for SessionStart.
     if context:
-        print(json.dumps({"hookSpecificOutput": {"additionalContext": context}}))
+        print(context)
 
 
 if __name__ == "__main__":
