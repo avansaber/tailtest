@@ -18,6 +18,21 @@ Restart Claude Code after install. No other setup required.
 
 ---
 
+## Documentation
+
+- [Quickstart](docs/quickstart.md)
+- [How it works](docs/how-it-works.md)
+- [Configuration](docs/configuration.md)
+- [Supported languages and frameworks](docs/languages.md)
+- [Existing projects](docs/existing-projects.md)
+- [Monorepo support](docs/monorepo.md)
+- [The /t command](docs/slash-command.md)
+- [Filter reference](docs/filter-reference.md)
+- [Session state](docs/session-state.md)
+- [Troubleshooting](docs/troubleshooting.md)
+
+---
+
 ## What it does
 
 After any Claude-written file lands in your project:
@@ -37,15 +52,13 @@ Create `.tailtest/config.json` in your project root (optional):
 
 ```json
 {
-  "depth": "standard",
-  "timeout": 30
+  "depth": "standard"
 }
 ```
 
 | Key | Values | Default | What it does |
 |---|---|---|---|
 | `depth` | `simple`, `standard`, `thorough` | `standard` | Controls scenario count: simple=2-3 (happy path), standard=5-8 (+ edge cases), thorough=10-15 (+ failure modes) |
-| `timeout` | integer (seconds) | `30` | Max seconds before a test run is considered hung |
 
 ---
 
@@ -80,7 +93,7 @@ For languages that require an explicit test runner (Go, Ruby, PHP, Java, Rust), 
 
 ## Session state
 
-tailtest writes `.tailtest/session.json` during each Claude Code session. This file tracks pending files, runner detection results, and fix attempt counts. It is gitignored automatically.
+tailtest writes `.tailtest/session.json` during each Claude Code session. This file tracks pending files, runner detection results, and fix attempt counts. Add `.tailtest/` to your project's `.gitignore` to keep it out of version control.
 
 Schema: [`hooks/session.schema.json`](hooks/session.schema.json)
 
@@ -88,7 +101,7 @@ Schema: [`hooks/session.schema.json`](hooks/session.schema.json)
 
 ## Monorepo support
 
-tailtest automatically detects monorepo layouts (pnpm workspaces, Nx, Turborepo, Lerna, Rush, or multiple package.json/pyproject.toml files at subdirectory roots).
+tailtest automatically detects monorepo layouts (pnpm workspaces, Nx, Turborepo, Lerna, Rush, or multiple package.json/pyproject.toml/composer.json files at subdirectory roots).
 
 For each detected package, tailtest resolves the correct test runner and test location independently. Files in `packages/api/` use that package's runner; files in `packages/web/` use that package's runner. Files outside all packages fall back to the root runner if one is configured.
 
