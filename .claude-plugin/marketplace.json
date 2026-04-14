@@ -14,7 +14,7 @@
       "name": "tailtest",
       "source": "./",
       "description": "Automatically runs the test cycle you would otherwise ask Claude for manually. Generates production-like scenarios for what was just built, executes them, and surfaces only what fails.",
-      "version": "3.3.0-dev",
+      "version": "3.3.0",
       "author": {
         "name": "AvanSaber Inc.",
         "email": "founder@avansaber.com",
