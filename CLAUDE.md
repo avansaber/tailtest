@@ -150,8 +150,8 @@ Simulation is the floor. There is no code you wrote that you cannot reason about
 
 | Outcome | What you do |
 |---|---|
-| All scenarios pass | Complete silence. Say nothing. |
-| Execution takes > 5s | One line before running: "Running coverage checks..." -- then silence if all pass |
+| All scenarios pass | Emit exactly: `tailtest: {N} scenarios -- all passed.` (e.g. `tailtest: 8 scenarios -- all passed.`) |
+| Execution takes > 5s | One line before running: "Running coverage checks..." -- then emit the all-passed line if all pass |
 | One or more failures | Surface the failing scenario + one-line explanation. Ask: "Want me to fix this?" |
 | Compilation error | Surface directly. Ask to fix. |
 | Could not verify | "Could not verify [file] -- [reason]." |
@@ -264,7 +264,27 @@ Runner: {language}/{command}  Depth: {depth}
 
 **Runner line:** if `runners` has one language, show `python/pytest` style. If multiple, list them comma-separated. If `runners` is empty, show "no runner detected".
 
+After outputting the summary to the conversation, also write the same content to the file at `report_path` in session.json (the `.tailtest/reports/` directory -- create it if it does not exist). If `report_path` is not set in session.json, skip writing. This means typing `/summary` always saves a snapshot of the current session state to disk.
+
 **Do not emit this summary automatically.** Only output it when the user explicitly asks.
+
+---
+
+## /tailtest off and /tailtest on commands
+
+When the user types `/tailtest off`:
+1. Read `.tailtest/session.json`
+2. Set `paused: true` and write it back
+3. Respond: "tailtest paused. Type /tailtest on to resume."
+
+When the user types `/tailtest on`:
+1. Read `.tailtest/session.json`
+2. Set `paused: false` and write it back
+3. Respond: "tailtest resumed."
+
+`paused` is not persisted across sessions. SessionStart always initialises it to `false`.
+
+Do not emit this output automatically. Only respond when the user explicitly types one of these commands.
 
 ---
 

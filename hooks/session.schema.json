@@ -54,6 +54,15 @@
       "default": "standard",
       "description": "Scenario depth. Read from .tailtest/config.json at session start. Defaults to standard if config is absent."
     },
+    "paused": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, the PostToolUse hook exits immediately without queuing files or emitting context. Set by /tailtest off, cleared by /tailtest on. Always false at session start."
+    },
+    "report_path": {
+      "type": "string",
+      "description": "Relative path (from project root) where the session report will be written. Set at session start. Format: .tailtest/reports/{session_id}.md"
+    },
     "pending_files": {
       "type": "array",
       "description": "Files written or edited this turn that have not yet been processed by Claude. Appended to by post_tool_use.py on each hook fire. Read and cleared to [] by Claude at the start of each user turn.",

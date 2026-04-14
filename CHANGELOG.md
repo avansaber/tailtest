@@ -1,5 +1,8 @@
 # Changelog
 
+## v3.6.0 -- 2026-04-14
+Adds three vibe-coder-focused features. `/tailtest off` and `/tailtest on` commands let you pause and resume testing mid-session without uninstalling. Session reports are now written automatically to `.tailtest/reports/` at session end -- a permanent, shareable markdown file of what was tested and what failed. Typing `/summary` also saves a report snapshot. Finally, when all scenarios pass, tailtest now emits `tailtest: N scenarios -- all passed.` instead of staying silent, giving non-technical users clear confirmation that their changes are safe.
+
 ## v3.5.1 -- 2026-04-14
 Adds the `/summary` slash command. Type `/summary` at any point in a session to see which files were tested, where test files were written, and whether any failures were fixed, deferred, or remain unresolved. Also ships the full `docs/` reference (10 pages covering quickstart, architecture, all 8 languages, monorepo, configuration, session state, and troubleshooting) and corrects the install command documentation.
 

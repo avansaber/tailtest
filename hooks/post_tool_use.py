@@ -570,6 +570,10 @@ def main() -> None:
 
     session = load_session(project_root)
 
+    # Exit immediately if session is paused
+    if session.get("paused", False):
+        sys.exit(0)
+
     global_runners: dict = session.get("runners", {})
     packages: dict = session.get("packages", {})
 

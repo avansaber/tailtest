@@ -4,7 +4,7 @@
 
 tailtest is a Claude Code plugin that automatically runs the test cycle you would otherwise ask Claude for manually. Every time Claude writes or edits a source file, tailtest generates production-like scenarios for what was just built, executes them, and surfaces only what fails -- without you asking.
 
-When everything passes, tailtest is silent. When something fails, it shows you one line and asks if you want it fixed.
+When something fails, tailtest shows you one line and asks if you want it fixed. When everything passes, it emits a confirmation so you know your changes are safe.
 
 ---
 
@@ -47,7 +47,7 @@ After any Claude-written file lands in your project:
 
 1. tailtest generates scenarios that describe real business behavior -- not function signatures
 2. It executes them using your existing test runner (pytest, vitest, jest) if available, or falls back to direct execution, or to simulation if neither is available
-3. If all pass: silence
+3. If all pass: `tailtest: N scenarios -- all passed.`
 4. If something fails: one line surfaced, "want me to fix this?"
 
 **Example:** Claude builds a billing service. tailtest generates: "Create invoice at $800 against a $1,000 credit limit -- verify it succeeds. Create invoice at $1,200 -- verify it is rejected." Runs them. If the credit-limit check has a bug, you see it before you move on.
@@ -67,6 +67,8 @@ Create `.tailtest/config.json` in your project root (optional):
 | Key | Values | Default | What it does |
 |---|---|---|---|
 | `depth` | `simple`, `standard`, `thorough` | `standard` | Controls scenario count: simple=2-3 (happy path), standard=5-8 (+ edge cases), thorough=10-15 (+ failure modes) |
+
+> **Session reports:** At the end of every session, tailtest writes a markdown report to `.tailtest/reports/` summarising which files were tested and their results. You can also trigger a report mid-session with `/summary`.
 
 ---
 
@@ -123,6 +125,8 @@ No configuration needed. Detection is automatic at session start.
 |---|---|
 | `/t <file>` | Generate or update tests for any file on demand -- works on existing files tailtest would normally skip |
 | `/summary` | Show what tailtest tested this session, what passed, what was fixed, what was deferred |
+| `/tailtest off` | Pause tailtest for the current session. No tests run until you resume. |
+| `/tailtest on` | Resume tailtest after pausing. |
 
 ---
 

@@ -43,6 +43,12 @@ Per-package runner configuration for monorepo projects. Keyed by package directo
 **`deferred_failures`**
 Failures the user explicitly chose not to fix. Keyed by file path. Not resurfaced unless that file is edited again in the same session.
 
+**`paused`**
+Boolean. Set to `true` by `/tailtest off`, `false` by `/tailtest on`. The PostToolUse hook exits immediately when this is `true`. Always `false` at session start.
+
+**`report_path`**
+Relative path where the session report will be written. Set at session start. Format: `.tailtest/reports/{session_id}.md`.
+
 ## A realistic example
 
 A Laravel project mid-session, two files pending, one fix attempt in progress:

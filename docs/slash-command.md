@@ -43,6 +43,27 @@ You can also ask in plain language: "what did you test?" or "tailtest summary" -
 
 ---
 
+## `/tailtest off` and `/tailtest on`
+
+Pause or resume tailtest for the current session.
+
+**`/tailtest off`** stops tailtest from running on file edits. Changes you make while paused are not tested. Useful when iterating quickly on something you know is incomplete.
+
+**`/tailtest on`** resumes normal behaviour.
+
+The pause state is not persisted across sessions -- tailtest always starts active.
+
+**Example:**
+```
+> /tailtest off
+tailtest paused. Type /tailtest on to resume.
+
+> /tailtest on
+tailtest resumed.
+```
+
+---
+
 ## /t -- generate tests for any file
 
 `/t` is the only explicit user-facing command tailtest adds to Claude. It triggers test generation for any file you specify, bypassing the normal new-file/legacy-file distinction.

@@ -679,13 +679,16 @@ def create_session(project_root: str, runners: dict, depth: str) -> dict:
     """Build and write a fresh session.json.  Returns the dict."""
     packages = scan_packages(project_root) if detect_monorepo(project_root) else {}
 
+    session_id = make_session_id()
     session = {
-        "session_id": make_session_id(),
+        "session_id": session_id,
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "project_root": project_root,
         "runners": {k: {kk: vv for kk, vv in v.items() if kk != "needs_bootstrap"}
                     for k, v in runners.items()},
         "depth": depth,
+        "paused": False,
+        "report_path": f".tailtest/reports/{session_id}.md",
         "pending_files": [],
         "touched_files": [],
         "fix_attempts": {},
@@ -700,6 +703,83 @@ def create_session(project_root: str, runners: dict, depth: str) -> dict:
         json.dump(session, fh, indent=2)
         fh.write("\n")
     return session
+
+
+def _write_orphaned_report(project_root: str) -> None:
+    """Write report for previous session if SessionEnd never fired (crash/force-kill).
+
+    Called at startup before creating the new session.json, so the old session
+    data is still present on disk.
+    """
+    session_path = os.path.join(project_root, ".tailtest", "session.json")
+    if not os.path.exists(session_path):
+        return
+    try:
+        with open(session_path) as fh:
+            old = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return
+
+    report_path = old.get("report_path")
+    if not report_path:
+        return
+    abs_report = os.path.join(project_root, report_path)
+    if os.path.exists(abs_report):
+        return  # Already written by SessionEnd
+    if not old.get("generated_tests"):
+        return  # Nothing to report
+
+    # Build minimal report from saved session state
+    runners: dict = old.get("runners", {})
+    depth: str = old.get("depth", "standard")
+    started_at: str = old.get("started_at", "")
+    fix_attempts: dict = old.get("fix_attempts", {})
+    deferred_failures: list = old.get("deferred_failures", [])
+    generated_tests: dict = old.get("generated_tests", {})
+
+    runner_parts = [f"{lang}/{info.get('command', '?')}" for lang, info in runners.items()]
+    runner_str = ", ".join(runner_parts) if runner_parts else "no runner"
+
+    lines = [f"# tailtest session -- {started_at}", "",
+             f"Runner: {runner_str}  |  Depth: {depth}", "",
+             "## Files tested", "",
+             "| File | Test file | Result |",
+             "|---|---|---|"]
+
+    deferred_paths = {d["file"] for d in deferred_failures if isinstance(d, dict)}
+    counts = {"passed": 0, "fixed": 0, "deferred": 0, "unresolved": 0}
+
+    for source_path, test_path in sorted(generated_tests.items()):
+        attempts = fix_attempts.get(source_path, 0)
+        if source_path in deferred_paths:
+            status = "deferred"
+            counts["deferred"] += 1
+        elif attempts == 0:
+            status = "passed"
+            counts["passed"] += 1
+        elif attempts >= 3:
+            status = "unresolved"
+            counts["unresolved"] += 1
+        else:
+            status = f"fixed ({attempts} attempt(s))"
+            counts["fixed"] += 1
+        lines.append(f"| {source_path} | {test_path} | {status} |")
+
+    total = len(generated_tests)
+    parts = [f"{total} file(s) tested"]
+    if counts["passed"]: parts.append(f"{counts['passed']} passed")
+    if counts["fixed"]: parts.append(f"{counts['fixed']} fixed")
+    if counts["deferred"]: parts.append(f"{counts['deferred']} deferred")
+    if counts["unresolved"]: parts.append(f"{counts['unresolved']} unresolved")
+    lines.extend(["", "## Summary", "  |  ".join(parts)])
+
+    content = "\n".join(lines) + "\n"
+    try:
+        os.makedirs(os.path.dirname(abs_report), exist_ok=True)
+        with open(abs_report, "w") as fh:
+            fh.write(content)
+    except OSError:
+        pass
 
 
 def read_claude_md(plugin_root: str) -> str:
@@ -855,6 +935,7 @@ def main() -> None:
         )
     else:
         # startup or resume -- full project orientation
+        _write_orphaned_report(project_root)
         runners = scan_runners(project_root)
         depth = read_depth(project_root)
         try:
