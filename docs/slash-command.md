@@ -1,4 +1,49 @@
-# The /t Command
+# Commands
+
+tailtest adds two slash commands to Claude:
+
+| Command | What it does |
+|---|---|
+| `/t <file>` | Generate or update tests for any file on demand |
+| `/summary` | Show what tailtest did this session |
+
+---
+
+## /summary -- session summary
+
+Type `/summary` at any point in a session to see what tailtest has done.
+
+```
+tailtest session summary
+Runner: python/pytest  Depth: standard
+
+3 file(s) covered:
+  src/billing.py    →  tests/test_billing.py    passed
+  src/invoice.py    →  tests/test_billing.py    fixed (1 attempt)
+  legacy/parser.py  →  (no test)                deferred
+
+1 fixed, 1 deferred, 0 unresolved.
+```
+
+The summary reads from `.tailtest/session.json`. It shows:
+- Which files Claude touched that had tests generated
+- Where the test file was written
+- Whether tests passed, needed fixing, were deferred, or are still unresolved
+- Which runner and depth are active
+
+**Status meanings:**
+- `passed` -- tests generated and all passed on the first run
+- `fixed (N attempt(s))` -- tests failed but Claude fixed them
+- `deferred` -- you told Claude to skip fixing this one
+- `unresolved` -- Claude tried 3 times and could not fix it; manual review needed
+
+The summary is on demand only. tailtest never emits it automatically.
+
+You can also ask in plain language: "what did you test?" or "tailtest summary" -- Claude understands both.
+
+---
+
+## /t -- generate tests for any file
 
 `/t` is the only explicit user-facing command tailtest adds to Claude. It triggers test generation for any file you specify, bypassing the normal new-file/legacy-file distinction.
 

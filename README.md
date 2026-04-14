@@ -11,10 +11,18 @@ When everything passes, tailtest is silent. When something fails, it shows you o
 ## Install
 
 ```
-claude plugin add avansaber/tailtest
+claude plugin marketplace add avansaber/tailtest
+claude plugin install tailtest@avansaber-tailtest
 ```
 
 Restart Claude Code after install. No other setup required.
+
+## Update
+
+```
+claude plugin marketplace update avansaber-tailtest
+claude plugin update tailtest@avansaber-tailtest
+```
 
 ---
 
@@ -106,6 +114,15 @@ tailtest automatically detects monorepo layouts (pnpm workspaces, Nx, Turborepo,
 For each detected package, tailtest resolves the correct test runner and test location independently. Files in `packages/api/` use that package's runner; files in `packages/web/` use that package's runner. Files outside all packages fall back to the root runner if one is configured.
 
 No configuration needed. Detection is automatic at session start.
+
+---
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/t <file>` | Generate or update tests for any file on demand -- works on existing files tailtest would normally skip |
+| `/summary` | Show what tailtest tested this session, what passed, what was fixed, what was deferred |
 
 ---
 

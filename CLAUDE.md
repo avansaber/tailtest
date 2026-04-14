@@ -233,6 +233,41 @@ tailtest is reactive. It does not scan existing files or generate tests proactiv
 
 ---
 
+## /summary command
+
+When the user types `/summary` (or a natural variant like "tailtest summary", "what did tailtest do", "what did you test"):
+
+Read `.tailtest/session.json`.
+
+If the file does not exist: say "No tailtest session active in this directory."
+
+If `generated_tests` is empty: say "No tests were generated this session."
+
+Otherwise output a plain-text block in exactly this format -- no markdown headers, no bullet points, no tables:
+
+```
+tailtest session summary
+Runner: {language}/{command}  Depth: {depth}
+
+{N} file(s) covered:
+  {source_file}  →  {test_file}  {status}
+  ...
+
+{N} fixed, {N} deferred, {N} unresolved.
+```
+
+**Status per file** (read from session.json fields):
+- `passed` -- file is in `generated_tests` and NOT in `fix_attempts`
+- `fixed (N attempt(s))` -- file is in `fix_attempts` with count 1 or 2, and NOT in `deferred_failures`
+- `deferred` -- file is in `deferred_failures`
+- `unresolved` -- file is in `fix_attempts` with count = 3 and NOT in `deferred_failures`
+
+**Runner line:** if `runners` has one language, show `python/pytest` style. If multiple, list them comma-separated. If `runners` is empty, show "no runner detected".
+
+**Do not emit this summary automatically.** Only output it when the user explicitly asks.
+
+---
+
 ## /t command
 
 When the user types `/t <file>` (or a variant like "tailtest <file>", "run tailtest on <file>"):

@@ -41,7 +41,7 @@ Maps source file paths to the test files generated for them in this session. Whe
 Per-package runner configuration for monorepo projects. Keyed by package directory path (relative to project root). Each entry has the same structure as `runners`. Empty object for flat (non-monorepo) projects. See [monorepo.md](monorepo.md).
 
 **`deferred_failures`**
-Failures the user explicitly chose not to fix. keyed by file path. Not resurfaced unless that file is edited again in the same session.
+Failures the user explicitly chose not to fix. Keyed by file path. Not resurfaced unless that file is edited again in the same session.
 
 ## A realistic example
 

@@ -10,9 +10,9 @@ Nothing else happens yet.
 
 ## Batching at the turn boundary
 
-tailtest never processes one file at a time. If Claude writes five files in one turn -- a service, a model, a controller, two utilities -- the hook fires five times and accumulates five paths into `pending_files`.
+tailtest never processes one file at a time. If Claude writes five files in one turn -- a service, a model, a controller, two utilities -- all five are queued together.
 
-Only when you send your next message does Claude read `pending_files` and treat all five as one unit of work. This means a service + model + controller generates one coherent set of scenarios, not three independent sets. Coverage stays connected to real behavior.
+Only when you send your next message does Claude treat all five as one unit of work. This means a service + model + controller generates one coherent set of scenarios, not three independent sets. Coverage stays connected to real behavior.
 
 ## Three-tier execution
 
