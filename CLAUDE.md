@@ -81,6 +81,14 @@ Depth is read from `.tailtest/config.json` (`depth` key). Default when absent: `
 
 ## Step 4: Write the test file
 
+**Style matching:** If `tailtest style context` is present in your session context, match the style, patterns, and conventions shown in the sampled files. Specifically:
+- Use the same structural pattern: bare `def test_*` functions vs `unittest.TestCase` subclasses vs `describe`/`it` blocks
+- Use the same assertion style: `assert x == y` vs `self.assertEqual(x, y)` vs `expect(x).toBe(y)`
+- Use parametrize / `test.each` if the sampled tests do
+- Use any custom helper or fixture shown in the style context instead of bare `render()` / plain instantiation
+
+If no style context is present, use the default idioms for the language.
+
 Write the scenarios as executable test code to disk.
 
 | Language | Where to write | File name |

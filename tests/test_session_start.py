@@ -15,6 +15,8 @@ from session_start import (
     build_bootstrap_note,
     build_compact_context,
     build_startup_context,
+    build_style_context,
+    detect_custom_helpers,
     detect_go_runner,
     detect_java_runner,
     detect_node_runner,
@@ -23,6 +25,8 @@ from session_start import (
     detect_python_runner,
     detect_ruby_runner,
     detect_rust_runner,
+    extract_style_snippet,
+    find_recent_test_files,
     read_depth,
     scan_runners,
 )
@@ -555,3 +559,243 @@ class TestDetectJavaRunner:
         result = detect_java_runner(str(tmp_path), str(tmp_path))
         assert result is not None
         assert "framework" not in result
+
+
+# ---------------------------------------------------------------------------
+# find_recent_test_files
+# ---------------------------------------------------------------------------
+
+
+class TestFindRecentTestFiles:
+    def test_empty_project_returns_empty(self, tmp_path):
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = find_recent_test_files(str(tmp_path), runners)
+        assert result == []
+
+    def test_finds_python_test_files(self, tmp_path):
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_billing.py").write_text("def test_x(): pass\n")
+        (tests_dir / "test_pricing.py").write_text("def test_y(): pass\n")
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = find_recent_test_files(str(tmp_path), runners)
+        basenames = [os.path.basename(p) for p in result]
+        assert "test_billing.py" in basenames
+        assert "test_pricing.py" in basenames
+
+    def test_respects_max_files(self, tmp_path):
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        for i in range(5):
+            (tests_dir / f"test_module{i}.py").write_text(f"def test_{i}(): pass\n")
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = find_recent_test_files(str(tmp_path), runners, max_files=3)
+        assert len(result) == 3
+
+    def test_returns_most_recent_first(self, tmp_path):
+        import time
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        old = tests_dir / "test_old.py"
+        new = tests_dir / "test_new.py"
+        old.write_text("def test_old(): pass\n")
+        time.sleep(0.05)
+        new.write_text("def test_new(): pass\n")
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = find_recent_test_files(str(tmp_path), runners, max_files=2)
+        assert os.path.basename(result[0]) == "test_new.py"
+        assert os.path.basename(result[1]) == "test_old.py"
+
+    def test_finds_typescript_test_files(self, tmp_path):
+        test_dir = tmp_path / "__tests__"
+        test_dir.mkdir()
+        (test_dir / "Button.test.ts").write_text("describe('Button', () => {})\n")
+        runners = {"typescript": {"command": "vitest", "test_location": "__tests__/"}}
+        result = find_recent_test_files(str(tmp_path), runners)
+        assert len(result) == 1
+        assert result[0].endswith("Button.test.ts")
+
+    def test_ignores_node_modules(self, tmp_path):
+        nm = tmp_path / "node_modules" / "some-lib" / "tests"
+        nm.mkdir(parents=True)
+        (nm / "test_lib.py").write_text("def test_x(): pass\n")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_real.py").write_text("def test_real(): pass\n")
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = find_recent_test_files(str(tmp_path), runners)
+        # test_lib.py lives inside node_modules/ -- it must NOT appear in results
+        basenames = [os.path.basename(p) for p in result]
+        assert "test_lib.py" not in basenames
+        assert "test_real.py" in basenames
+        assert len(result) == 1
+
+    def test_no_matching_patterns_returns_empty(self, tmp_path):
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "helper.py").write_text("def helper(): pass\n")
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = find_recent_test_files(str(tmp_path), runners)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# extract_style_snippet
+# ---------------------------------------------------------------------------
+
+
+class TestExtractStyleSnippet:
+    def test_returns_file_content(self, tmp_path):
+        f = tmp_path / "test_billing.py"
+        f.write_text("import pytest\n\ndef test_add(): pass\n")
+        result = extract_style_snippet(str(f))
+        assert result is not None
+        assert "import pytest" in result
+        assert "def test_add" in result
+
+    def test_truncates_at_max_lines(self, tmp_path):
+        f = tmp_path / "test_big.py"
+        f.write_text("\n".join(f"line{i}" for i in range(50)))
+        result = extract_style_snippet(str(f), max_lines=5)
+        assert result is not None
+        lines = result.split("\n")
+        assert len(lines) == 5
+
+    def test_missing_file_returns_none(self):
+        result = extract_style_snippet("/nonexistent/path/test_x.py")
+        assert result is None
+
+    def test_strips_trailing_whitespace(self, tmp_path):
+        f = tmp_path / "test_x.py"
+        f.write_text("def test_x(): pass\n\n\n")
+        result = extract_style_snippet(str(f))
+        assert result is not None
+        assert not result.endswith("\n")
+
+
+# ---------------------------------------------------------------------------
+# detect_custom_helpers
+# ---------------------------------------------------------------------------
+
+
+class TestDetectCustomHelpers:
+    def test_detects_conftest_import(self):
+        snippet = "import pytest\nfrom conftest import create_client\n\ndef test_x(): pass\n"
+        result = detect_custom_helpers([snippet])
+        assert any("conftest" in h for h in result)
+        assert any("create_client" in h for h in result)
+
+    def test_detects_js_test_utils_import(self):
+        snippet = (
+            "import { render } from '@testing-library/react'\n"
+            "import { renderWithStore } from './test-utils'\n"
+            "\ndescribe('X', () => {})\n"
+        )
+        result = detect_custom_helpers([snippet])
+        assert any("renderWithStore" in h for h in result)
+        assert any("test-utils" in h for h in result)
+
+    def test_skips_standard_library_imports(self):
+        snippet = "import pytest\nimport unittest\nfrom unittest.mock import patch\n"
+        result = detect_custom_helpers([snippet])
+        assert result == []
+
+    def test_skips_node_modules_imports(self):
+        snippet = (
+            "import { render } from '@testing-library/react'\n"
+            "import { vi } from 'vitest'\n"
+        )
+        result = detect_custom_helpers([snippet])
+        assert result == []
+
+    def test_caps_at_five_helpers(self):
+        # Multiple conftest imports across snippets
+        snippets = [
+            f"from conftest import helper_{i}\n" for i in range(10)
+        ]
+        result = detect_custom_helpers(snippets)
+        assert len(result) <= 5
+
+    def test_deduplicates_same_import(self):
+        snippet = "from conftest import create_client\nfrom conftest import create_client\n"
+        result = detect_custom_helpers([snippet])
+        assert len([h for h in result if "create_client" in h]) == 1
+
+
+# ---------------------------------------------------------------------------
+# build_style_context
+# ---------------------------------------------------------------------------
+
+
+class TestBuildStyleContext:
+    def test_no_test_files_returns_none(self, tmp_path):
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = build_style_context(str(tmp_path), runners)
+        assert result is None
+
+    def test_returns_string_when_test_files_exist(self, tmp_path):
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_billing.py").write_text("def test_x(): pass\n")
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = build_style_context(str(tmp_path), runners)
+        assert result is not None
+        assert isinstance(result, str)
+
+    def test_includes_snippet_content(self, tmp_path):
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_billing.py").write_text(
+            "import pytest\n\ndef test_add():\n    assert 1 + 1 == 2\n"
+        )
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = build_style_context(str(tmp_path), runners)
+        assert result is not None
+        assert "def test_add" in result
+
+    def test_includes_header_line(self, tmp_path):
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_x.py").write_text("def test_x(): pass\n")
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = build_style_context(str(tmp_path), runners)
+        assert result is not None
+        assert "tailtest style context" in result
+
+    def test_includes_custom_helpers_when_detected(self, tmp_path):
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_api.py").write_text(
+            "from conftest import create_client\n\ndef test_get(): pass\n"
+        )
+        runners = {"python": {"command": "pytest", "test_location": "tests/"}}
+        result = build_style_context(str(tmp_path), runners)
+        assert result is not None
+        assert "create_client" in result
+
+    def test_empty_runners_returns_none(self, tmp_path):
+        result = build_style_context(str(tmp_path), {})
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# build_startup_context -- style context integration
+# ---------------------------------------------------------------------------
+
+
+class TestBuildStartupContextStyleIntegration:
+    def test_style_context_included_when_tests_exist(self, tmp_path):
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_billing.py").write_text(
+            "import pytest\n\ndef test_billing(): pass\n"
+        )
+        runners = {"python": {"command": "pytest", "args": ["-q"], "test_location": "tests/"}}
+        ctx = build_startup_context(str(tmp_path), runners, "standard", "")
+        assert "tailtest style context" in ctx
+        assert "def test_billing" in ctx
+
+    def test_style_context_absent_for_empty_project(self, tmp_path):
+        runners = {"python": {"command": "pytest", "args": ["-q"], "test_location": "tests/"}}
+        ctx = build_startup_context(str(tmp_path), runners, "standard", "")
+        assert "tailtest style context" not in ctx
