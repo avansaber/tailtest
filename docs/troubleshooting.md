@@ -20,7 +20,7 @@ Work through this checklist in order:
 
 This is expected behavior. When Claude edits a file that already existed before the session (tracked by git), tailtest marks it as `legacy-file`. If no test file exists for it, tailtest is completely silent.
 
-Use `/t filename` to generate tests for any existing file on demand. See [existing-projects.md](existing-projects.md) and [slash-command.md](slash-command.md).
+Use `/tailtest filename` to generate tests for any existing file on demand. See [existing-projects.md](existing-projects.md) and [slash-command.md](slash-command.md).
 
 ## The runner was not detected
 
@@ -54,7 +54,7 @@ If the package appears but the runner is wrong, check which manifest file was fo
 
 ## Session.json shows files as legacy-file when they should be new-file
 
-In a git project: tailtest uses `git ls-files` to determine status. If a file is committed, it is `legacy-file`. To generate fresh tests for a committed file, use `/t`.
+In a git project: tailtest uses `git ls-files` to determine status. If a file is committed, it is `legacy-file`. To generate fresh tests for a committed file, use `/tailtest`.
 
 In a no-git project: the first edit in the session is `new-file`. A second edit in the same session is `legacy-file`. Each new Claude Code session resets this tracking.
 

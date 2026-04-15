@@ -21,19 +21,19 @@ In a git project: if the file is tracked by git (`git ls-files` knows about it),
 
 In a project without a `.git` folder: the first time Claude touches a file in the current session, it is `new-file`. Any subsequent edit to the same file in the same session is `legacy-file`.
 
-## The /t command: generate tests for any file on demand
+## The /tailtest command: generate tests for any file on demand
 
 This is the primary tool for getting coverage on existing files. Run it in Claude like a slash command:
 
 ```
-/t src/services/billing.py
-/t app/Http/Controllers/OrderController.php
-/t lib/pricing.ts
+/tailtest src/services/billing.py
+/tailtest app/Http/Controllers/OrderController.php
+/tailtest lib/pricing.ts
 ```
 
 Pass the path relative to your project root. tailtest treats the file as `new-file` regardless of git status, generates scenarios at your configured depth, writes the test file, runs it, and reports only failures.
 
-After you run `/t` on a file once, the test file exists. Any future edits to that file within the same session find the existing test file and update it rather than regenerating from scratch.
+After you run `/tailtest` on a file once, the test file exists. Any future edits to that file within the same session find the existing test file and update it rather than regenerating from scratch.
 
 ## Progressive coverage strategy
 
@@ -41,6 +41,6 @@ For large existing codebases, the practical approach is not to cover everything 
 
 Let tailtest build coverage naturally as Claude touches files in the course of normal development. Each file Claude edits that has an existing test will be exercised. Each new file Claude creates will get fresh scenarios automatically.
 
-For critical paths you want covered immediately -- billing logic, authentication, anything with a bug history -- use `/t` to trigger generation explicitly. Everything else accumulates as development proceeds.
+For critical paths you want covered immediately -- billing logic, authentication, anything with a bug history -- use `/tailtest` to trigger generation explicitly. Everything else accumulates as development proceeds.
 
 This is generally more useful than a one-time test generation sweep: coverage that grows with active development stays connected to what the code actually does.

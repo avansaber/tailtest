@@ -47,7 +47,7 @@ It does not run without Claude. tailtest is a Claude Code plugin. It requires an
 
 ## Next steps
 
-- [Commands](slash-command.md) -- `/t` to test any file on demand, `/summary` to see what tailtest did, `/tailtest off` to pause
+- [Commands](slash-command.md) -- `/tailtest <file>` to test any file on demand, `/summary` to see what tailtest did, `/tailtest off` to pause
 - [Configuration](configuration.md) -- change scenario depth, silence specific paths
 - [Supported languages](languages.md) -- runner detection, framework variants, test file locations
 - [Existing projects](existing-projects.md) -- how to add coverage to a codebase that already exists

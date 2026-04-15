@@ -295,9 +295,9 @@ Do not emit this output automatically. Only respond when the user explicitly typ
 
 ---
 
-## /t command
+## /tailtest command
 
-When the user types `/t <file>` (or a variant like "tailtest <file>", "run tailtest on <file>"):
+When the user types `/tailtest <file>` (or a variant like "tailtest <file>", "run tailtest on <file>"):
 
 1. If `<file>` is already in `pending_files` (e.g., from ramp-up), remove it from `pending_files` before Step 1 runs -- it will be covered by this explicit command. Do not generate tests twice for the same file in a single turn.
 2. Read the source file at `<file>`
