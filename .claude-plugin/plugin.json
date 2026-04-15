@@ -1,6 +1,6 @@
 {
   "name": "tailtest",
-  "version": "3.7.0",
+  "version": "3.8.0-dev",
   "description": "Quietly generates and runs tests alongside your Claude Code session. Any language. No commands. No setup.",
   "author": {
     "name": "AvanSaber Inc.",
