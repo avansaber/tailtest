@@ -25,6 +25,7 @@ import os
 import random
 import re
 import string
+import subprocess
 import sys
 from typing import Optional
 
@@ -47,6 +48,65 @@ _HELPER_MODULE_RE = re.compile(
     r"test[-_]utils?|helpers?|factories|factory|test[-_]setup",
     re.IGNORECASE,
 )
+
+# ---------------------------------------------------------------------------
+# Ramp-up scan constants
+# ---------------------------------------------------------------------------
+
+RAMP_UP_SENTINEL: str = ".ramp-up-initiated"
+
+RAMP_UP_EXT_MAP: dict[str, str] = {
+    ".py": "python",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".php": "php",
+    ".go": "go",
+    ".rb": "ruby",
+    ".rs": "rust",
+    ".java": "java",
+}
+
+RAMP_UP_SKIP_DIRS: frozenset[str] = frozenset({
+    "node_modules", ".venv", "venv", "dist", "build",
+    "__pycache__", "vendor", ".git", "generated", ".tailtest",
+    "coverage", ".next", ".nuxt", "target", ".cargo",
+    ".pytest_cache", ".mypy_cache", ".ruff_cache", ".nyc_output",
+    ".svelte-kit",
+})
+
+# Path fragments that indicate non-testable content
+_RAMP_UP_SKIP_FRAGMENTS: tuple[str, ...] = (
+    "node_modules/", ".venv/", "venv/", ".env/", "env/",
+    "dist/", "build/", "generated/", ".git/", "vendor/",
+    "migrations/", "db/migrate/", "database/migrations/",
+    "__pycache__/", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/",
+    "target/", ".cargo/", "coverage/", ".nyc_output/",
+    ".next/", ".nuxt/", ".svelte-kit/", ".tailtest/",
+)
+
+# Test file name patterns (same set as post_tool_use.py TEST_NAME_PATTERNS)
+_RAMP_UP_TEST_PATTERNS: tuple[str, ...] = (
+    "test_", "_test.", ".test.", ".spec.", "_spec.", "Test.", "Tests.", "IT.",
+)
+
+# Framework boilerplate entry points (duplicated from post_tool_use.py)
+_RAMP_UP_BOILERPLATE: frozenset[str] = frozenset({
+    "manage.py", "wsgi.py", "asgi.py", "__main__.py",
+    "middleware.ts", "middleware.js",
+})
+
+# Go generated file markers
+_RAMP_UP_GO_GENERATED_PREFIXES: tuple[str, ...] = ("mock_",)
+_RAMP_UP_GO_GENERATED_SUFFIXES: tuple[str, ...] = ("_mock.go", "_gen.go", ".pb.go")
+
+# JS/TS generated file suffixes
+_RAMP_UP_JS_GENERATED_SUFFIXES: tuple[str, ...] = (".generated.ts", ".graphql.ts")
+
+# Path keywords for scoring
+_RAMP_UP_PATH_SCORE_HIGH: tuple[str, ...] = ("services/", "models/", "app/", "lib/")
+_RAMP_UP_PATH_SCORE_MED: tuple[str, ...] = ("src/", "core/", "api/", "controllers/", "handlers/")
 
 # ---------------------------------------------------------------------------
 # Runner detection helpers -- pure functions, unit-tested directly
@@ -782,6 +842,318 @@ def _write_orphaned_report(project_root: str) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# Ramp-up scan -- first-session coverage bootstrap
+# ---------------------------------------------------------------------------
+
+
+def load_ignore_patterns(project_root: str) -> list[str]:
+    """Read .tailtest-ignore from project root.  Returns [] if absent.
+
+    Duplicated from post_tool_use.py -- the two hooks share no import path.
+    """
+    ignore_path = os.path.join(project_root, ".tailtest-ignore")
+    if not os.path.exists(ignore_path):
+        return []
+    patterns: list[str] = []
+    try:
+        with open(ignore_path) as fh:
+            for line in fh:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    patterns.append(stripped)
+    except OSError:
+        pass
+    return patterns
+
+
+def is_first_session(project_root: str) -> bool:
+    """True if .tailtest/reports/ has no .md files and no ramp-up sentinel.
+
+    Reports are written only after actual test generation (via /summary,
+    SessionEnd, or _write_orphaned_report).  An empty reports dir means
+    no coverage has ever been produced -- ramp-up should fire.
+    """
+    reports_dir = os.path.join(project_root, ".tailtest", "reports")
+    if not os.path.isdir(reports_dir):
+        return True
+    try:
+        for entry in os.scandir(reports_dir):
+            if entry.name == RAMP_UP_SENTINEL:
+                return False
+            if entry.name.endswith(".md"):
+                return False
+    except OSError:
+        return True
+    return True
+
+
+def read_ramp_up_limit(project_root: str) -> int:
+    """Read ramp_up_limit from .tailtest/config.json.
+
+    Default 7.  Set to 0 to disable ramp-up entirely.  Clamped to [1, 15].
+    """
+    config_path = os.path.join(project_root, ".tailtest", "config.json")
+    cfg = _read_json(config_path)
+    if cfg is None:
+        return 7
+    try:
+        raw = cfg.get("ramp_up_limit", 7)
+        val = int(raw)
+        if val == 0:
+            return 0
+        return max(1, min(15, val))
+    except (TypeError, ValueError):
+        return 7
+
+
+def _git_commit_counts(project_root: str) -> dict[str, int]:
+    """Return {rel_path: commit_count} for all files.  Single git call.
+
+    --no-merges: prevents merge commits from inflating scores.
+    --max-count=500: bounds execution time on large repos.
+    Returns {} if git is unavailable, times out, or fails for any reason.
+    """
+    if not os.path.isdir(os.path.join(project_root, ".git")):
+        return {}
+    try:
+        result = subprocess.run(
+            [
+                "git", "-C", project_root, "log",
+                "--name-only", "--pretty=format:", "--no-merges", "--max-count=500",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        counts: dict[str, int] = {}
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line:
+                counts[line] = counts.get(line, 0) + 1
+        return counts
+    except Exception:
+        return {}
+
+
+def _is_ramp_up_filtered(
+    rel_path: str,
+    fname: str,
+    ignore_patterns: list[str],
+) -> bool:
+    """True when the file should be excluded from ramp-up candidates.
+
+    Mirrors the path/name checks from post_tool_use.is_filtered() without
+    reading file content.  Content checks (re-export barrels, type-only TS)
+    are delegated to Claude's Step 2 filter at processing time.
+    """
+    lower = fname.lower()
+
+    # .tailtest-ignore patterns
+    for pat in ignore_patterns:
+        if pat.endswith("/"):
+            if rel_path.startswith(pat):
+                return True
+        elif fnmatch.fnmatch(rel_path, pat) or fnmatch.fnmatch(fname, pat):
+            return True
+
+    # Path fragment exclusions
+    for frag in _RAMP_UP_SKIP_FRAGMENTS:
+        if frag in rel_path:
+            return True
+
+    # Build-tool config compound suffixes
+    for suffix in (".config.js", ".config.ts", ".config.mjs", ".config.cjs",
+                   ".config.jsx", ".config.tsx"):
+        if lower.endswith(suffix):
+            return True
+
+    # Test file name patterns
+    if any(pat in fname for pat in _RAMP_UP_TEST_PATTERNS):
+        return True
+
+    # Framework boilerplate
+    if fname in _RAMP_UP_BOILERPLATE:
+        return True
+
+    # Go generated files
+    if fname.endswith(".go"):
+        if any(fname.startswith(p) for p in _RAMP_UP_GO_GENERATED_PREFIXES):
+            return True
+        if any(fname.endswith(s) for s in _RAMP_UP_GO_GENERATED_SUFFIXES):
+            return True
+
+    # JS/TS generated files
+    if any(fname.endswith(s) for s in _RAMP_UP_JS_GENERATED_SUFFIXES):
+        return True
+
+    # Dockerfile (no extension)
+    if lower == "dockerfile" or lower.endswith(".dockerfile"):
+        return True
+
+    return False
+
+
+def _has_existing_test(basename: str, abs_source_path: str, project_root: str) -> bool:
+    """True if any test file for this source already exists.
+
+    Checks co-located siblings first (Go _test.go, TS/JS .test.ts, etc.),
+    then standard test directories.
+    """
+    source_dir = os.path.dirname(abs_source_path)
+    siblings = [
+        f"{basename}_test.go",
+        f"{basename}.test.ts", f"{basename}.spec.ts",
+        f"{basename}.test.tsx", f"{basename}.spec.tsx",
+        f"{basename}.test.js", f"{basename}.spec.js",
+        f"{basename}.test.jsx", f"{basename}.spec.jsx",
+    ]
+    for sibling in siblings:
+        if os.path.exists(os.path.join(source_dir, sibling)):
+            return True
+
+    stems = {
+        f"test_{basename}", f"{basename}_test",
+        f"{basename}.test", f"{basename}.spec",
+        f"{basename}_spec",
+        f"{basename}Test", f"{basename}Tests",
+    }
+    for tdir in ("tests/", "__tests__/", "spec/", "test/", "src/test/"):
+        abs_tdir = os.path.join(project_root, tdir)
+        if not os.path.isdir(abs_tdir):
+            continue
+        try:
+            for _root, _dirs, files in os.walk(abs_tdir):
+                for f in files:
+                    if os.path.splitext(f)[0] in stems:
+                        return True
+        except OSError:
+            pass
+    return False
+
+
+def _score_candidate(
+    rel_path: str,
+    basename: str,
+    abs_path: str,
+    commit_counts: dict[str, int],
+    project_root: str,
+) -> int:
+    """Score a source file for ramp-up selection.  Higher = more important.
+
+    score = git_score + path_score + size_score - existing_test_penalty
+
+    git_score:   min(commit_count, 20) * 2   (max +40)
+    path_score:  +30 services/models/app/lib; +20 src/core/api/controllers/handlers
+    size_score:  -20 <30 lines; 0 30-79; +30 80-800; +10 801-1500; 0 >1500
+    penalty:     -100 if a test already exists (effectively excludes the file)
+    """
+    rel_lower = rel_path.lower()
+
+    git_score = min(commit_counts.get(rel_path, 0), 20) * 2
+
+    if any(frag in rel_lower for frag in _RAMP_UP_PATH_SCORE_HIGH):
+        path_score = 30
+    elif any(frag in rel_lower for frag in _RAMP_UP_PATH_SCORE_MED):
+        path_score = 20
+    else:
+        path_score = 0
+
+    size_score = 0
+    try:
+        with open(abs_path, encoding="utf-8", errors="ignore") as fh:
+            line_count = sum(1 for _ in fh)
+        if line_count < 30:
+            size_score = -20
+        elif line_count < 80:
+            size_score = 0
+        elif line_count <= 800:
+            size_score = 30
+        elif line_count <= 1500:
+            size_score = 10
+        # else: >1500 lines, 0
+    except OSError:
+        pass
+
+    penalty = 100 if _has_existing_test(basename, abs_path, project_root) else 0
+
+    return git_score + path_score + size_score - penalty
+
+
+def ramp_up_scan(project_root: str, runners: dict, session: dict) -> None:
+    """Pre-populate pending_files with the project's most important source files.
+
+    Called only on the first-ever startup (is_first_session() returned True).
+    Modifies `session` in-place and rewrites .tailtest/session.json.
+    If nothing qualifies, returns silently without setting ramp_up.
+    """
+    limit = read_ramp_up_limit(project_root)
+    if limit == 0:
+        return
+
+    # Write sentinel before scanning so that if Claude crashes before any tests
+    # are generated (no .md report written), the next startup won't re-fire ramp-up.
+    reports_dir = os.path.join(project_root, ".tailtest", "reports")
+    try:
+        os.makedirs(reports_dir, exist_ok=True)
+        open(os.path.join(reports_dir, RAMP_UP_SENTINEL), "w").close()  # noqa: WPS515
+    except OSError:
+        pass  # sentinel is best-effort; continue regardless
+
+    ignore_patterns = load_ignore_patterns(project_root)
+    commit_counts = _git_commit_counts(project_root)
+
+    candidates: list[tuple[int, str, str]] = []  # (score, rel_path, language)
+
+    for root, dirnames, files in os.walk(project_root):
+        # Prune known-noise dirs in-place -- this is the traversal performance bound
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in RAMP_UP_SKIP_DIRS and not d.startswith(".")
+        ]
+
+        for fname in files:
+            abs_path = os.path.join(root, fname)
+
+            # Skip symlinks -- may point outside the project
+            if os.path.islink(abs_path):
+                continue
+
+            rel_path = os.path.relpath(abs_path, project_root).replace("\\", "/")
+
+            language = RAMP_UP_EXT_MAP.get(os.path.splitext(fname)[1].lower())
+            if not language:
+                continue
+
+            if _is_ramp_up_filtered(rel_path, fname, ignore_patterns):
+                continue
+
+            basename = os.path.splitext(fname)[0]
+            score = _score_candidate(rel_path, basename, abs_path, commit_counts, project_root)
+            if score > 0:
+                candidates.append((score, rel_path, language))
+
+    if not candidates:
+        return  # Nothing qualifies -- silent, ramp_up flag NOT set in session
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    top = candidates[:limit]
+
+    session["pending_files"] = [
+        {"path": rel_path, "language": lang, "status": "ramp-up"}
+        for _, rel_path, lang in top
+    ]
+    session["ramp_up"] = True
+
+    session_path = os.path.join(project_root, ".tailtest", "session.json")
+    try:
+        with open(session_path, "w") as fh:
+            json.dump(session, fh, indent=2)
+            fh.write("\n")
+    except OSError:
+        pass  # Never crash startup
+
+
 def read_claude_md(plugin_root: str) -> str:
     """Read CLAUDE.md from plugin root.  Returns empty string if not found."""
     claude_md_path = os.path.join(plugin_root, "CLAUDE.md")
@@ -819,6 +1191,7 @@ def build_startup_context(
     runners: dict,
     depth: str,
     claude_md: str,
+    ramp_up_count: int = 0,
 ) -> str:
     """Build the full additionalContext payload for startup/resume."""
     lines: list[str] = []
@@ -838,6 +1211,12 @@ def build_startup_context(
         f"tailtest: session started. Project root: {project_root}. "
         f"Runners: {runner_text}. Depth: {depth}."
     )
+
+    if ramp_up_count > 0:
+        lines.append(
+            f"tailtest ramp-up: first session detected -- {ramp_up_count} file(s) "
+            f"queued for initial coverage scan."
+        )
 
     bootstrap = build_bootstrap_note(runners)
     if bootstrap:
@@ -938,12 +1317,25 @@ def main() -> None:
         _write_orphaned_report(project_root)
         runners = scan_runners(project_root)
         depth = read_depth(project_root)
+        first_session = is_first_session(project_root)
+        session: dict = {}
         try:
-            create_session(project_root, runners, depth)
+            session = create_session(project_root, runners, depth)
         except OSError:
             pass
 
-        context = build_startup_context(project_root, runners, depth, claude_md)
+        ramp_up_count = 0
+        if source == "startup" and first_session and session:
+            try:
+                ramp_up_scan(project_root, runners, session)
+                ramp_up_count = len(session.get("pending_files", []))
+            except Exception:
+                ramp_up_count = 0  # Never crash startup
+
+        context = build_startup_context(
+            project_root, runners, depth, claude_md,
+            ramp_up_count=ramp_up_count,
+        )
 
     # For SessionStart, plain stdout is added to Claude's context directly.
     # hookSpecificOutput.additionalContext does NOT work for SessionStart.
