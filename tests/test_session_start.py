@@ -5,17 +5,25 @@ detect_project_type, read_depth.  Uses tmp_path fixtures -- no live session.
 """
 
 import json
+import subprocess
 import sys
 import os
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "hooks"))
 
 import pytest
 from session_start import (
+    RAMP_UP_SENTINEL,
+    _git_commit_counts,
+    _has_existing_test,
+    _is_ramp_up_filtered,
+    _score_candidate,
     build_bootstrap_note,
     build_compact_context,
     build_startup_context,
     build_style_context,
+    create_session,
     detect_custom_helpers,
     detect_go_runner,
     detect_java_runner,
@@ -28,7 +36,11 @@ from session_start import (
     detect_rust_runner,
     extract_style_snippet,
     find_recent_test_files,
+    is_first_session,
+    load_ignore_patterns,
+    ramp_up_scan,
     read_depth,
+    read_ramp_up_limit,
     scan_packages,
     scan_runners,
 )
@@ -900,3 +912,528 @@ class TestScanPackages:
         py_runner = result.get("packages/api", {}).get("python", {})
         # test_location should be relative to project_root: "packages/api/tests/"
         assert "packages/api" in py_runner.get("test_location", "")
+
+
+# ---------------------------------------------------------------------------
+# load_ignore_patterns
+# ---------------------------------------------------------------------------
+
+
+class TestLoadIgnorePatterns:
+    def test_no_file_returns_empty(self, tmp_path):
+        assert load_ignore_patterns(str(tmp_path)) == []
+
+    def test_reads_patterns(self, tmp_path):
+        (tmp_path / ".tailtest-ignore").write_text("scripts/\n*.generated.py\n")
+        result = load_ignore_patterns(str(tmp_path))
+        assert "scripts/" in result
+        assert "*.generated.py" in result
+
+    def test_skips_blank_lines_and_comments(self, tmp_path):
+        (tmp_path / ".tailtest-ignore").write_text("# comment\n\nfoo.py\n")
+        result = load_ignore_patterns(str(tmp_path))
+        assert result == ["foo.py"]
+
+
+# ---------------------------------------------------------------------------
+# is_first_session
+# ---------------------------------------------------------------------------
+
+
+class TestIsFirstSession:
+    def test_no_tailtest_dir_returns_true(self, tmp_path):
+        assert is_first_session(str(tmp_path)) is True
+
+    def test_reports_dir_missing_returns_true(self, tmp_path):
+        (tmp_path / ".tailtest").mkdir()
+        assert is_first_session(str(tmp_path)) is True
+
+    def test_reports_dir_empty_returns_true(self, tmp_path):
+        (tmp_path / ".tailtest" / "reports").mkdir(parents=True)
+        assert is_first_session(str(tmp_path)) is True
+
+    def test_reports_dir_with_md_returns_false(self, tmp_path):
+        reports = tmp_path / ".tailtest" / "reports"
+        reports.mkdir(parents=True)
+        (reports / "session-abc.md").write_text("report")
+        assert is_first_session(str(tmp_path)) is False
+
+    def test_reports_dir_with_non_md_files_only_returns_true(self, tmp_path):
+        reports = tmp_path / ".tailtest" / "reports"
+        reports.mkdir(parents=True)
+        (reports / "stale.json").write_text("{}")
+        (reports / "debug.txt").write_text("debug")
+        assert is_first_session(str(tmp_path)) is True
+
+    def test_reports_dir_with_sentinel_returns_false(self, tmp_path):
+        reports = tmp_path / ".tailtest" / "reports"
+        reports.mkdir(parents=True)
+        (reports / RAMP_UP_SENTINEL).write_text("")
+        assert is_first_session(str(tmp_path)) is False
+
+    def test_reports_dir_scandir_oserror_returns_true(self, tmp_path):
+        reports = tmp_path / ".tailtest" / "reports"
+        reports.mkdir(parents=True)
+        with patch("session_start.os.scandir", side_effect=OSError("fail")):
+            assert is_first_session(str(tmp_path)) is True
+
+
+# ---------------------------------------------------------------------------
+# read_ramp_up_limit
+# ---------------------------------------------------------------------------
+
+
+class TestReadRampUpLimit:
+    def test_no_config_returns_default_7(self, tmp_path):
+        assert read_ramp_up_limit(str(tmp_path)) == 7
+
+    def test_config_with_explicit_value(self, tmp_path):
+        cfg = tmp_path / ".tailtest" / "config.json"
+        cfg.parent.mkdir()
+        cfg.write_text('{"ramp_up_limit": 5}')
+        assert read_ramp_up_limit(str(tmp_path)) == 5
+
+    def test_config_value_0_returns_0(self, tmp_path):
+        cfg = tmp_path / ".tailtest" / "config.json"
+        cfg.parent.mkdir()
+        cfg.write_text('{"ramp_up_limit": 0}')
+        assert read_ramp_up_limit(str(tmp_path)) == 0
+
+    def test_config_below_min_clamped_to_1(self, tmp_path):
+        cfg = tmp_path / ".tailtest" / "config.json"
+        cfg.parent.mkdir()
+        cfg.write_text('{"ramp_up_limit": -5}')
+        assert read_ramp_up_limit(str(tmp_path)) == 1
+
+    def test_config_above_max_clamped_to_15(self, tmp_path):
+        cfg = tmp_path / ".tailtest" / "config.json"
+        cfg.parent.mkdir()
+        cfg.write_text('{"ramp_up_limit": 100}')
+        assert read_ramp_up_limit(str(tmp_path)) == 15
+
+    def test_config_malformed_json_returns_7(self, tmp_path):
+        cfg = tmp_path / ".tailtest" / "config.json"
+        cfg.parent.mkdir()
+        cfg.write_text("not-json")
+        assert read_ramp_up_limit(str(tmp_path)) == 7
+
+    def test_config_non_integer_value_returns_7(self, tmp_path):
+        cfg = tmp_path / ".tailtest" / "config.json"
+        cfg.parent.mkdir()
+        cfg.write_text('{"ramp_up_limit": "many"}')
+        assert read_ramp_up_limit(str(tmp_path)) == 7
+
+
+# ---------------------------------------------------------------------------
+# _git_commit_counts
+# ---------------------------------------------------------------------------
+
+
+class TestGitCommitCounts:
+    def test_no_git_dir_returns_empty(self, tmp_path):
+        assert _git_commit_counts(str(tmp_path)) == {}
+
+    def test_git_timeout_returns_empty(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        with patch(
+            "session_start.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("git", 5),
+        ):
+            assert _git_commit_counts(str(tmp_path)) == {}
+
+    def test_git_not_found_returns_empty(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        with patch(
+            "session_start.subprocess.run",
+            side_effect=FileNotFoundError,
+        ):
+            assert _git_commit_counts(str(tmp_path)) == {}
+
+    def test_no_merges_flag_present(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        with patch("session_start.subprocess.run", return_value=mock_result) as mock_run:
+            _git_commit_counts(str(tmp_path))
+            args = mock_run.call_args[0][0]
+            assert "--no-merges" in args
+
+    def test_max_count_500_flag_present(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        with patch("session_start.subprocess.run", return_value=mock_result) as mock_run:
+            _git_commit_counts(str(tmp_path))
+            args = mock_run.call_args[0][0]
+            assert "--max-count=500" in args
+
+    def test_parses_file_counts(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        mock_result = MagicMock()
+        mock_result.stdout = "\nservices/billing.py\nservices/billing.py\nlib/utils.py\n\n"
+        with patch("session_start.subprocess.run", return_value=mock_result):
+            counts = _git_commit_counts(str(tmp_path))
+        assert counts["services/billing.py"] == 2
+        assert counts["lib/utils.py"] == 1
+
+    def test_blank_lines_not_counted(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        mock_result = MagicMock()
+        mock_result.stdout = "\n\n   \nservices/billing.py\n\n"
+        with patch("session_start.subprocess.run", return_value=mock_result):
+            counts = _git_commit_counts(str(tmp_path))
+        assert "" not in counts
+        assert "   " not in counts
+
+
+# ---------------------------------------------------------------------------
+# _is_ramp_up_filtered
+# ---------------------------------------------------------------------------
+
+
+class TestIsRampUpFiltered:
+    def test_normal_python_file_not_filtered(self):
+        assert _is_ramp_up_filtered("services/billing.py", "billing.py", []) is False
+
+    def test_test_file_filtered(self):
+        assert _is_ramp_up_filtered("tests/test_billing.py", "test_billing.py", []) is True
+
+    def test_node_modules_fragment_filtered(self):
+        assert _is_ramp_up_filtered("node_modules/pkg/index.js", "index.js", []) is True
+
+    def test_config_file_filtered(self):
+        assert _is_ramp_up_filtered("tailwind.config.ts", "tailwind.config.ts", []) is True
+
+    def test_boilerplate_manage_py_filtered(self):
+        assert _is_ramp_up_filtered("manage.py", "manage.py", []) is True
+
+    def test_go_generated_mock_filtered(self):
+        assert _is_ramp_up_filtered("mocks/mock_service.go", "mock_service.go", []) is True
+
+    def test_go_pb_generated_filtered(self):
+        assert _is_ramp_up_filtered("proto/user.pb.go", "user.pb.go", []) is True
+
+    def test_ignore_pattern_directory_filtered(self):
+        assert _is_ramp_up_filtered("scripts/deploy.py", "deploy.py", ["scripts/"]) is True
+
+    def test_ignore_pattern_glob_filtered(self):
+        assert _is_ramp_up_filtered("lib/foo.generated.py", "foo.generated.py", ["*.generated.py"]) is True
+
+    def test_dockerfile_filtered(self):
+        assert _is_ramp_up_filtered("Dockerfile", "Dockerfile", []) is True
+
+    def test_spec_file_filtered(self):
+        assert _is_ramp_up_filtered("lib/billing.spec.ts", "billing.spec.ts", []) is True
+
+
+# ---------------------------------------------------------------------------
+# _has_existing_test
+# ---------------------------------------------------------------------------
+
+
+class TestHasExistingTest:
+    def test_no_test_files_returns_false(self, tmp_path):
+        src = tmp_path / "services" / "billing.py"
+        src.parent.mkdir(parents=True)
+        src.write_text("def calc(): pass\n" * 50)
+        assert _has_existing_test("billing", str(src), str(tmp_path)) is False
+
+    def test_test_file_in_tests_dir_returns_true(self, tmp_path):
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_billing.py").write_text("def test_x(): pass")
+        src = tmp_path / "services" / "billing.py"
+        src.parent.mkdir(parents=True)
+        src.write_text("def calc(): pass\n")
+        assert _has_existing_test("billing", str(src), str(tmp_path)) is True
+
+    def test_spec_file_in_spec_dir_returns_true(self, tmp_path):
+        spec = tmp_path / "spec"
+        spec.mkdir()
+        (spec / "billing_spec.rb").write_text("describe Billing do end")
+        src = tmp_path / "app" / "billing.rb"
+        src.parent.mkdir(parents=True)
+        src.write_text("class Billing; end\n")
+        assert _has_existing_test("billing", str(src), str(tmp_path)) is True
+
+    def test_js_test_file_returns_true(self, tmp_path):
+        tests = tmp_path / "__tests__"
+        tests.mkdir()
+        (tests / "billing.test.js").write_text("test('x', () => {})")
+        src = tmp_path / "src" / "billing.js"
+        src.parent.mkdir(parents=True)
+        src.write_text("function calc() {}\n")
+        assert _has_existing_test("billing", str(src), str(tmp_path)) is True
+
+    def test_different_basename_returns_false(self, tmp_path):
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_other.py").write_text("def test_x(): pass")
+        src = tmp_path / "services" / "billing.py"
+        src.parent.mkdir(parents=True)
+        src.write_text("def calc(): pass\n")
+        assert _has_existing_test("billing", str(src), str(tmp_path)) is False
+
+    def test_go_colocated_sibling_returns_true(self, tmp_path):
+        src_dir = tmp_path / "internal" / "handler"
+        src_dir.mkdir(parents=True)
+        src = src_dir / "handler.go"
+        src.write_text("package handler\n")
+        (src_dir / "handler_test.go").write_text("package handler\n")
+        assert _has_existing_test("handler", str(src), str(tmp_path)) is True
+
+    def test_ts_colocated_sibling_returns_true(self, tmp_path):
+        src_dir = tmp_path / "src" / "lib"
+        src_dir.mkdir(parents=True)
+        src = src_dir / "billing.ts"
+        src.write_text("export function calc() {}\n")
+        (src_dir / "billing.test.ts").write_text("test('x', () => {})\n")
+        assert _has_existing_test("billing", str(src), str(tmp_path)) is True
+
+
+# ---------------------------------------------------------------------------
+# _score_candidate
+# ---------------------------------------------------------------------------
+
+
+class TestScoreCandidate:
+    def _make_file(self, tmp_path, rel_path: str, lines: int = 200) -> tuple[str, str]:
+        abs_path = tmp_path / rel_path
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_text("x = 1\n" * lines)
+        return rel_path, str(abs_path)
+
+    def test_services_file_medium_size_scores_high(self, tmp_path):
+        rel, abs_p = self._make_file(tmp_path, "services/billing.py", 200)
+        score = _score_candidate(rel, "billing", abs_p, {}, str(tmp_path))
+        assert score >= 30  # at minimum path_score + size_score
+
+    def test_tiny_file_gets_negative_size_score(self, tmp_path):
+        rel, abs_p = self._make_file(tmp_path, "services/billing.py", 10)
+        score = _score_candidate(rel, "billing", abs_p, {}, str(tmp_path))
+        # path_score=30, size_score=-20 → net 10
+        assert score == 10
+
+    def test_git_commits_add_to_score(self, tmp_path):
+        rel, abs_p = self._make_file(tmp_path, "utils/helper.py", 200)
+        score_no_git = _score_candidate(rel, "helper", abs_p, {}, str(tmp_path))
+        score_with_git = _score_candidate(rel, "helper", abs_p, {rel: 10}, str(tmp_path))
+        assert score_with_git == score_no_git + 20  # 10 commits * 2
+
+    def test_git_score_capped_at_40(self, tmp_path):
+        rel, abs_p = self._make_file(tmp_path, "utils/helper.py", 200)
+        score_50 = _score_candidate(rel, "helper", abs_p, {rel: 50}, str(tmp_path))
+        score_20 = _score_candidate(rel, "helper", abs_p, {rel: 20}, str(tmp_path))
+        assert score_50 == score_20  # both capped at max(20,20)*2=40
+
+    def test_path_priority_services_over_utils(self, tmp_path):
+        rel_svc, abs_svc = self._make_file(tmp_path, "services/billing.py", 200)
+        rel_util, abs_util = self._make_file(tmp_path, "utils/helper.py", 200)
+        score_svc = _score_candidate(rel_svc, "billing", abs_svc, {}, str(tmp_path))
+        score_util = _score_candidate(rel_util, "helper", abs_util, {}, str(tmp_path))
+        assert score_svc > score_util
+
+    def test_existing_test_penalty_excludes_file(self, tmp_path):
+        # Source file with matching test in tests/ -- penalty should drop score <= 0
+        src_dir = tmp_path / "services"
+        src_dir.mkdir()
+        src = src_dir / "billing.py"
+        src.write_text("x = 1\n" * 200)
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_billing.py").write_text("def test_x(): pass")
+        score = _score_candidate("services/billing.py", "billing", str(src), {}, str(tmp_path))
+        assert score <= 0  # penalty of -100 drops below zero
+
+
+# ---------------------------------------------------------------------------
+# ramp_up_scan
+# ---------------------------------------------------------------------------
+
+
+class TestRampUpScan:
+    def _make_session(self, tmp_path) -> dict:
+        """Create a minimal session dict (as create_session would produce)."""
+        session = {
+            "session_id": "test-session",
+            "project_root": str(tmp_path),
+            "runners": {},
+            "depth": "standard",
+            "pending_files": [],
+            "touched_files": [],
+            "fix_attempts": {},
+            "deferred_failures": [],
+            "generated_tests": {},
+            "packages": {},
+        }
+        tailtest_dir = tmp_path / ".tailtest"
+        tailtest_dir.mkdir(exist_ok=True)
+        (tailtest_dir / "session.json").write_text(json.dumps(session))
+        return session
+
+    def _make_source_file(self, tmp_path, rel_path: str, lines: int = 200):
+        path = tmp_path / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x = 1\n" * lines)
+
+    def test_empty_project_does_nothing(self, tmp_path):
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        assert session.get("pending_files") == []
+        assert "ramp_up" not in session
+
+    def test_first_session_populates_pending_files(self, tmp_path):
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        assert len(session["pending_files"]) > 0
+
+    def test_queued_files_have_ramp_up_status(self, tmp_path):
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        for entry in session["pending_files"]:
+            assert entry["status"] == "ramp-up"
+
+    def test_queued_files_have_correct_language(self, tmp_path):
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        for entry in session["pending_files"]:
+            assert entry["language"] == "python"
+
+    def test_limit_respected(self, tmp_path):
+        # Create 10 source files, set limit to 3
+        for i in range(10):
+            self._make_source_file(tmp_path, f"services/svc_{i}.py", 200)
+        cfg = tmp_path / ".tailtest" / "config.json"
+        cfg.parent.mkdir(exist_ok=True)
+        cfg.write_text('{"ramp_up_limit": 3}')
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        assert len(session["pending_files"]) <= 3
+
+    def test_top_scoring_files_selected(self, tmp_path):
+        # High-score: services/ + 200 lines. Low-score: root level + 10 lines (tiny)
+        self._make_source_file(tmp_path, "services/important.py", 200)
+        self._make_source_file(tmp_path, "tiny.py", 5)
+        cfg = tmp_path / ".tailtest" / "config.json"
+        cfg.parent.mkdir(exist_ok=True)
+        cfg.write_text('{"ramp_up_limit": 1}')
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        assert len(session["pending_files"]) == 1
+        assert session["pending_files"][0]["path"] == "services/important.py"
+
+    def test_files_with_existing_tests_excluded(self, tmp_path):
+        # Source file + matching test file in tests/
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_billing.py").write_text("def test_x(): pass\n")
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        paths = [e["path"] for e in session["pending_files"]]
+        assert "services/billing.py" not in paths
+
+    def test_session_json_written_after_scan(self, tmp_path):
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        # Verify both in-memory and on-disk agree
+        session_path = tmp_path / ".tailtest" / "session.json"
+        on_disk = json.loads(session_path.read_text())
+        assert on_disk["pending_files"] == session["pending_files"]
+        assert on_disk.get("ramp_up") == session.get("ramp_up")
+
+    def test_ramp_up_flag_set_in_session(self, tmp_path):
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        assert session.get("ramp_up") is True
+
+    def test_ramp_up_flag_not_set_if_no_candidates(self, tmp_path):
+        # Only a tiny config file -- nothing qualifies
+        (tmp_path / "config.yaml").write_text("key: value\n")
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        assert "ramp_up" not in session
+
+    def test_sentinel_file_written_when_scan_fires(self, tmp_path):
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        sentinel = tmp_path / ".tailtest" / "reports" / RAMP_UP_SENTINEL
+        assert sentinel.exists()
+
+    def test_test_files_excluded(self, tmp_path):
+        self._make_source_file(tmp_path, "tests/test_billing.py", 200)
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        paths = [e["path"] for e in session["pending_files"]]
+        assert not any("test_" in p for p in paths)
+
+    def test_is_filtered_applied_node_modules(self, tmp_path):
+        nm = tmp_path / "node_modules" / "pkg"
+        nm.mkdir(parents=True)
+        (nm / "index.js").write_text("module.exports = {}\n" * 100)
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        paths = [e["path"] for e in session["pending_files"]]
+        assert not any("node_modules" in p for p in paths)
+
+    def test_no_git_graceful_fallback(self, tmp_path):
+        # No .git dir -- should still run using path+size scoring
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        assert len(session["pending_files"]) > 0
+
+    def test_git_timeout_graceful_fallback(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        session = self._make_session(tmp_path)
+        with patch(
+            "session_start.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("git", 5),
+        ):
+            ramp_up_scan(str(tmp_path), {}, session)
+        assert len(session["pending_files"]) > 0  # still ran on path+size
+
+    def test_oserror_on_json_write_does_not_crash(self, tmp_path):
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        session = self._make_session(tmp_path)
+        with patch("builtins.open", side_effect=OSError("disk full")):
+            ramp_up_scan(str(tmp_path), {}, session)
+        # Should not raise -- OSError is swallowed
+
+    def test_limit_0_does_nothing(self, tmp_path):
+        self._make_source_file(tmp_path, "services/billing.py", 200)
+        cfg = tmp_path / ".tailtest" / "config.json"
+        cfg.parent.mkdir(exist_ok=True)
+        cfg.write_text('{"ramp_up_limit": 0}')
+        session = self._make_session(tmp_path)
+        ramp_up_scan(str(tmp_path), {}, session)
+        assert session.get("pending_files") == []
+        assert "ramp_up" not in session
+
+
+# ---------------------------------------------------------------------------
+# build_startup_context -- ramp_up_count parameter
+# ---------------------------------------------------------------------------
+
+
+class TestBuildStartupContextRampUp:
+    def test_ramp_up_count_0_no_ramp_up_line(self):
+        ctx = build_startup_context("/proj", {}, "standard", "", ramp_up_count=0)
+        assert "ramp-up" not in ctx
+
+    def test_ramp_up_count_7_includes_line_with_count(self):
+        ctx = build_startup_context("/proj", {}, "standard", "", ramp_up_count=7)
+        assert "7 file(s)" in ctx
+        assert "ramp-up" in ctx
+
+    def test_ramp_up_count_positional_arg_ordering(self):
+        # Verify ramp_up_count is the 5th param; call positionally to catch ordering mistakes
+        ctx = build_startup_context("/proj", {}, "standard", "", 3)
+        assert "3 file(s)" in ctx
