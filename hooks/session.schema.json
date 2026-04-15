@@ -80,8 +80,8 @@
           },
           "status": {
             "type": "string",
-            "enum": ["new-file", "legacy-file"],
-            "description": "new-file: file was created or first touched in this session -- generate scenarios. legacy-file: file existed before this session -- run existing tests if present, stay silent if not."
+            "enum": ["new-file", "legacy-file", "ramp-up"],
+            "description": "new-file: file was created or first touched in this session -- generate scenarios. legacy-file: file existed before this session -- run existing tests if present, stay silent if not. ramp-up: file queued by the first-session ramp-up scan -- treat like new-file (generate scenarios)."
           }
         }
       }
@@ -122,6 +122,11 @@
         "packages/api": { "python": { "command": "pytest", "args": ["-q"], "test_location": "packages/api/tests/" } },
         "packages/web": { "typescript": { "command": "vitest", "args": ["run"], "test_location": "packages/web/__tests__/" } }
       }]
+    },
+    "ramp_up": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when pending_files was pre-populated by the first-session ramp-up scan. Set by session_start.py on first startup. Used by Claude to frame the initial coverage pass with 'tailtest: running initial coverage scan on N file(s)...' before processing."
     },
     "deferred_failures": {
       "type": "array",
