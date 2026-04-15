@@ -1,5 +1,8 @@
 # Changelog
 
+## v3.7.0 -- 2026-04-15
+First-install ramp-up scan. When tailtest starts on a project for the very first time, it now automatically queues the most important existing files for an initial coverage pass -- no manual `/t` commands needed. Files are selected by scoring git activity (commit frequency), path signal (services, models, controllers score higher), and size (skips tiny and giant files). The top 7 are queued by default; configure with `ramp_up_limit` in `.tailtest/config.json` (0 to disable, max 15). A sentinel file prevents the scan from re-firing on crash-and-restart. Before running the batch, Claude emits `tailtest: running initial coverage scan on N file(s)...` so you know what is happening.
+
 ## v3.6.0 -- 2026-04-14
 Adds three vibe-coder-focused features. `/tailtest off` and `/tailtest on` commands let you pause and resume testing mid-session without uninstalling. Session reports are now written automatically to `.tailtest/reports/` at session end -- a permanent, shareable markdown file of what was tested and what failed. Typing `/summary` also saves a report snapshot. Finally, when all scenarios pass, tailtest now emits `tailtest: N scenarios -- all passed.` instead of staying silent, giving non-technical users clear confirmation that their changes are safe.
 

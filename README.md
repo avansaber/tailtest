@@ -58,6 +58,8 @@ After any Claude-written file lands in your project:
 
 **Example:** Claude builds a billing service. tailtest generates: "Create invoice at $800 against a $1,000 credit limit -- verify it succeeds. Create invoice at $1,200 -- verify it is rejected." Runs them. If the credit-limit check has a bug, you see it before you move on.
 
+**First session on an existing project:** The very first time tailtest starts on a project, it scans the codebase and automatically queues the most important existing files for an initial coverage pass. Files are ranked by git activity, path signal (services and models score higher), and size. The top 7 are queued by default. Before running them, Claude emits `tailtest: running initial coverage scan on N file(s)...` so you know what is happening. This runs once -- a sentinel file prevents it from re-firing on restart.
+
 ---
 
 ## Configuration
@@ -73,6 +75,7 @@ Create `.tailtest/config.json` in your project root (optional):
 | Key | Values | Default | What it does |
 |---|---|---|---|
 | `depth` | `simple`, `standard`, `thorough` | `standard` | Controls scenario count: simple=2-3 (happy path), standard=5-8 (+ edge cases), thorough=10-15 (+ failure modes) |
+| `ramp_up_limit` | `0`-`15` | `7` | Number of files to queue on first-install scan. Set to `0` to disable the ramp-up scan entirely. |
 
 > **Session reports:** At the end of every session, tailtest writes a markdown report to `.tailtest/reports/` summarising which files were tested and their results. You can also trigger a report mid-session with `/summary`.
 
@@ -142,7 +145,7 @@ No configuration needed. Detection is automatic at session start.
 - Coverage percentages or delta tracking
 - HTML reports or dashboards
 - Standalone CLI -- this is a Claude Code plugin only, not a command-line tool
-- Proactive scanning -- tailtest is reactive; it only processes files Claude actually edits in the current session
+- Proactive scanning -- tailtest is reactive; it only processes files Claude actually edits in the current session (the first-install ramp-up scan is a one-time exception)
 
 ---
 
