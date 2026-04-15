@@ -1,5 +1,8 @@
 # Changelog
 
+## v3.7.1 -- 2026-04-15
+Fixes a bug where Python, TypeScript, and JavaScript files were silently skipped when no runner was detected at session start (e.g., a project without a `pyproject.toml` or `package.json`). These languages now queue correctly regardless of manifest presence -- Claude falls back to direct execution or simulation if no runner is configured. Go, Ruby, PHP, Java, and Rust are unchanged: they still require their respective manifest file.
+
 ## v3.7.0 -- 2026-04-15
 First-install ramp-up scan. When tailtest starts on a project for the very first time, it now automatically queues the most important existing files for an initial coverage pass -- no manual `/t` commands needed. Files are selected by scoring git activity (commit frequency), path signal (services, models, controllers score higher), and size (skips tiny and giant files). The top 7 are queued by default; configure with `ramp_up_limit` in `.tailtest/config.json` (0 to disable, max 15). A sentinel file prevents the scan from re-firing on crash-and-restart. Before running the batch, Claude emits `tailtest: running initial coverage scan on N file(s)...` so you know what is happening.
 

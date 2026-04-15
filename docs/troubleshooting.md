@@ -10,7 +10,7 @@ Work through this checklist in order:
 
 3. **Is the file matched by `.tailtest-ignore`?** Check if a `.tailtest-ignore` file exists and whether any pattern matches the file path.
 
-4. **Does the language require a configured runner?** Go, Ruby, PHP, Java, and Rust require their respective manifest file (`go.mod`, `Gemfile`, `composer.json`, `pom.xml`/`build.gradle`, `Cargo.toml`). If none is found, tailtest is completely silent for that language. Check `.tailtest/session.json` → `runners` to see what was detected.
+4. **Does the language require a configured runner?** Go, Ruby, PHP, Java, and Rust require their respective manifest file (`go.mod`, `Gemfile`, `composer.json`, `pom.xml`/`build.gradle`, `Cargo.toml`). If none is found, tailtest is completely silent for those languages. Python, TypeScript, and JavaScript always queue -- if no runner is detected, Claude falls back to direct execution or simulation. Check `.tailtest/session.json` → `runners` to see what was detected.
 
 5. **Is the file a framework boilerplate entry point?** `manage.py`, `wsgi.py`, `asgi.py`, `__main__.py`, `middleware.ts`, `middleware.js` are skipped.
 
@@ -27,6 +27,10 @@ Use `/t filename` to generate tests for any existing file on demand. See [existi
 For Python: is `pyproject.toml` present at the project root or a parent directory? For Node: is `package.json` present? For PHP/Go/Ruby/Java/Rust: is the respective manifest present?
 
 Confirm by reading `.tailtest/session.json` → `runners`. If it is `{}`, no manifest was found.
+
+**Python, TypeScript, and JavaScript still work without a detected runner.** If `runners` is `{}` for a Python or JS/TS project, tailtest will still queue files and Claude will execute tests directly (`python -m pytest`, `npx vitest`, or simulation). Adding a manifest file (`pyproject.toml`, `package.json`) lets session_start detect your runner and test location, which produces more accurate output -- but it is not required.
+
+**Go, Ruby, PHP, Java, and Rust do not work without a detected runner.** Files in these languages are silently skipped if the manifest is absent.
 
 For monorepos: check `packages` in `session.json`. If your package's directory is absent, the package was not detected -- confirm the package directory has its own manifest file.
 
