@@ -577,11 +577,6 @@ def main() -> None:
     global_runners: dict = session.get("runners", {})
     packages: dict = session.get("packages", {})
 
-    # No manifest found at session start → no runner → stay completely silent.
-    # (Standalone scripts with no package manager are not tailtest targets.)
-    if not global_runners and not packages:
-        sys.exit(0)
-
     touched_files: list[str] = session.get("touched_files", [])
     rel_path = _norm(os.path.relpath(os.path.abspath(file_path), project_root))
 
@@ -595,10 +590,6 @@ def main() -> None:
     # RUNNER_REQUIRED_LANGUAGES must have an explicitly configured runner.
     # Unlike Python/TS/JS, these cannot be bootstrapped from a first-available fallback.
     if language in RUNNER_REQUIRED_LANGUAGES and language not in runners:
-        sys.exit(0)
-
-    # Also silently exit when no runners resolved at all for this file.
-    if not runners:
         sys.exit(0)
 
     status = determine_status(file_path, project_root, touched_files)

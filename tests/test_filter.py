@@ -1003,9 +1003,32 @@ class TestMonorepoRunnerResolutionIntegration:
         # Should use root tests/ not packages/api/tests/
         assert "tests/test_utils.py" in note
 
-    def test_no_runners_at_all_exits_silently(self, tmp_path):
+    def test_python_queued_with_no_runners(self, tmp_path):
+        # Python/TS/JS should queue even when session_start detected no runner.
+        # Claude falls back to bash execution or simulation (CLAUDE.md Step 5).
         tmpdir = str(tmp_path)
         source_rel = "services/billing.py"
+        self._write_source(tmpdir, source_rel)
+        self._write_session(tmpdir, global_runners={}, packages={})
+
+        result = subprocess.run(
+            [sys.executable, HOOK_PATH],
+            input=json.dumps({
+                "tool_name": "Write",
+                "tool_input": {"file_path": os.path.join(tmpdir, source_rel)},
+                "cwd": tmpdir,
+            }),
+            capture_output=True, text=True,
+        )
+        out = json.loads(result.stdout)
+        note = out["hookSpecificOutput"]["additionalContext"]
+        assert "services/billing.py" in note
+        assert "queued" in note
+
+    def test_runner_required_language_exits_silently_with_no_runners(self, tmp_path):
+        # PHP/Go/Ruby/Rust/Java still require an explicitly detected runner.
+        tmpdir = str(tmp_path)
+        source_rel = "app/Services/OrderService.php"
         self._write_source(tmpdir, source_rel)
         self._write_session(tmpdir, global_runners={}, packages={})
 
