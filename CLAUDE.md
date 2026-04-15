@@ -11,11 +11,18 @@ Read `.tailtest/session.json`. If `pending_files` is non-empty:
 1. Note the pending files list
 2. Skip any filtered files (filter rules in Step 2)
 3. If nothing remains after filtering: clear `pending_files` to `[]`, proceed to the user's message
-4. Generate scenarios for all remaining files as one unit of work
-5. Write test file and execute (Steps 4–5)
+4. **Before generating, check for ramp-up framing:** if `session.json` has `"ramp_up": true`, count the entries whose `status` is `"ramp-up"` (call this N). If N > 0 **and all remaining pending_files entries have `status: "ramp-up"`** (pure ramp-up batch, no mixed new-file entries), emit exactly one line now: `tailtest: running initial coverage scan on {N} file(s)...` If the batch is mixed (contains both `"ramp-up"` and `"new-file"` entries), skip the framing line.
+5. Generate scenarios for all remaining files as one unit of work -- treat `"ramp-up"` entries identically to `"new-file"` (generate scenarios, write test, execute, report)
+6. Write test file and execute (Steps 4–5)
 6. Report failures -- stay silent if all pass (Step 6)
 7. Write `"pending_files": []` back to `.tailtest/session.json`
 8. Then address the user's message
+
+**Note:** if a framing line was emitted in step 4, still emit the Step 6 result line normally after execution. Both lines appear in the same turn:
+```
+tailtest: running initial coverage scan on 7 file(s)...
+tailtest: 12 scenarios -- all passed.
+```
 
 Treat all pending entries as one cohesive unit. If Claude wrote a service, a model, and a controller this turn, generate one scenario set for what the system does -- not three disconnected sets.
 
@@ -229,7 +236,7 @@ tailtest is reactive. It does not scan existing files or generate tests proactiv
 
 **Before updating a legacy test file:** always read it first to understand its structure, helpers, and conventions. Never blindly overwrite existing tests.
 
-**Progressive coverage:** on the first session with a large existing codebase, tailtest will only surface tests for files you actually touch. This is by design -- cold generation on unfamiliar code creates noise, not signal.
+**Progressive coverage:** tailtest is reactive -- it processes files you actually edit during the session. The one exception is the first-ever session on a project: if `session.json` contains `"ramp_up": true`, tailtest has pre-selected the project's most important existing files for an initial coverage pass. Treat those files (status: `"ramp-up"`) like `"new-file"` entries -- generate scenarios, write tests, execute, report.
 
 ---
 
@@ -292,10 +299,11 @@ Do not emit this output automatically. Only respond when the user explicitly typ
 
 When the user types `/t <file>` (or a variant like "tailtest <file>", "run tailtest on <file>"):
 
-1. Read the source file at `<file>`
-2. Generate scenarios (Step 3) -- treat the file as `new-file` regardless of git status
-3. Write or update the test file (Step 4) -- read the existing test first if one exists
-4. Run tests (Step 5)
-5. Report results (Step 6)
+1. If `<file>` is already in `pending_files` (e.g., from ramp-up), remove it from `pending_files` before Step 1 runs -- it will be covered by this explicit command. Do not generate tests twice for the same file in a single turn.
+2. Read the source file at `<file>`
+3. Generate scenarios (Step 3) -- treat the file as `new-file` regardless of git status
+4. Write or update the test file (Step 4) -- read the existing test first if one exists
+5. Run tests (Step 5)
+6. Report results (Step 6)
 
 This is the only way to trigger generation for a file that tailtest would normally skip (legacy file with no existing tests, or any file the user wants explicitly covered).
