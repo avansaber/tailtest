@@ -1,5 +1,8 @@
 # Changelog
 
+## v3.8.0 -- 2026-04-16
+Compatibility update for Claude Opus 4.7. Opus 4.7 follows instructions more literally and uses fewer tool calls by default than Opus 4.6. Two changes to the hook's context note address this: (1) when multiple files are pending, the note now explicitly says "write tests for all of them" -- Opus 4.7 will not silently generalize a write-one-test instruction across N files; (2) the note ending now reads "write test file(s) to disk, run them, report results -- then respond to the user" instead of "Read session.json before responding to the user," which previously let Opus 4.7 read the file and respond without ever writing tests.
+
 ## v3.7.1 -- 2026-04-15
 Fixes a bug where Python, TypeScript, and JavaScript files were silently skipped when no runner was detected at session start (e.g., a project without a `pyproject.toml` or `package.json`). These languages now queue correctly regardless of manifest presence -- Claude falls back to direct execution or simulation if no runner is configured. Go, Ruby, PHP, Java, and Rust are unchanged: they still require their respective manifest file.
 
