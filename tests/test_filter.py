@@ -377,6 +377,7 @@ class TestBuildContextNote:
     def test_multiple_files_shows_count(self):
         note = build_context_note("app.py", "new-file", "python", 3, {})
         assert "3 files pending" in note
+        assert "write tests for all of them" in note
 
     def test_legacy_file_status(self):
         note = build_context_note("app.py", "legacy-file", "python", 1, {})
@@ -386,6 +387,7 @@ class TestBuildContextNote:
         note = build_context_note("app.py", "new-file", "python", 1, {})
         assert "app.py" in note
         assert "session.json" in note
+        assert "write test file(s) to disk" in note
 
     def test_fallback_runner_from_other_language(self):
         runners = {"typescript": {"command": "vitest", "args": ["run"], "test_location": "__tests__/"}}

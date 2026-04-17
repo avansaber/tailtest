@@ -529,10 +529,13 @@ def build_context_note(
                 )
 
     if pending_count > 1:
-        parts.append(f"{pending_count} files pending")
+        parts.append(f"{pending_count} files pending -- write tests for all of them")
     if runner_name:
         parts.append(f"runner: {runner_name}")
-    parts.append("Read .tailtest/session.json before responding to the user")
+    parts.append(
+        "Read .tailtest/session.json, write test file(s) to disk, run them, "
+        "report results -- then respond to the user"
+    )
     return ". ".join(parts) + "."
 
 
