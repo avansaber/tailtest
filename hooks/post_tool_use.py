@@ -146,6 +146,7 @@ def main() -> None:
         runners,
         project_root,
         existing_test_path,
+        configured_depth=session.get("depth", "standard"),
     )
     print(json.dumps({"hookSpecificOutput": {"additionalContext": context}}))
 

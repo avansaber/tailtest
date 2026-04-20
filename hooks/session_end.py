@@ -12,7 +12,9 @@ import json
 import os
 import sys
 
+from lib.complexity_scorer import score_file
 from lib.last_failures_formatter import compute_last_failures
+from lib.scenario_log import append_to_log, build_scenario_entries
 from lib.session import load_session, save_session
 
 
@@ -111,9 +113,35 @@ def main() -> None:
     project_root: str = event.get("cwd", os.getcwd())
     session = load_session(project_root)
 
+    changed = False
+
     last_failures = compute_last_failures(session)
     if last_failures != session.get("last_failures"):
         session["last_failures"] = last_failures
+        changed = True
+
+    # H3: append file-level outcomes to scenario_log
+    new_entries = build_scenario_entries(session)
+    if new_entries:
+        existing_log = session.get("scenario_log", [])
+        session["scenario_log"] = append_to_log(existing_log, new_entries)
+        changed = True
+
+    # H1: store complexity scores for tested files (for future session reference)
+    generated_tests: dict = session.get("generated_tests", {})
+    if generated_tests:
+        scores = session.get("complexity_scores", {})
+        for source_path in generated_tests:
+            abs_path = os.path.join(project_root, source_path)
+            try:
+                score, _ = score_file(abs_path)
+                scores[source_path] = score
+            except Exception:
+                pass
+        session["complexity_scores"] = scores
+        changed = True
+
+    if changed:
         try:
             save_session(project_root, session)
         except OSError:

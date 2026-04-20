@@ -74,6 +74,8 @@ def load_session(project_root: str) -> dict:
         "generated_tests": {},
         "packages": {},
         "last_failures": [],
+        "scenario_log": [],
+        "complexity_scores": {},
     }
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+from lib.complexity_scorer import complexity_context_note
 from lib.filter import RUNNER_REQUIRED_LANGUAGES, _norm
 from lib.last_failures_formatter import format_last_failures
 from lib.session import load_session
@@ -248,6 +249,7 @@ def build_context_note(
     runners: dict,
     project_root: Optional[str] = None,
     existing_test_path: Optional[str] = None,
+    configured_depth: str = "standard",
 ) -> str:
     """Build the one-line additionalContext note for Claude (new-file path)."""
     runner_name: Optional[str] = None
@@ -293,6 +295,13 @@ def build_context_note(
         parts.append(f"{pending_count} files pending -- write tests for all of them")
     if runner_name:
         parts.append(f"runner: {runner_name}")
+
+    if project_root:
+        abs_path = os.path.join(project_root, rel_path)
+        complexity_hint = complexity_context_note(abs_path, configured_depth)
+        if complexity_hint:
+            parts.append(complexity_hint)
+
     parts.append(
         "Read .tailtest/session.json, write test file(s) to disk, run them, "
         "report results -- then respond to the user"

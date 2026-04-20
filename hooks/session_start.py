@@ -61,8 +61,10 @@ from lib.runners import (
     scan_packages,
     scan_runners,
 )
+from lib.complexity_scorer import complexity_context_note, score_file, score_to_depth
 from lib.last_failures_formatter import compute_last_failures, format_last_failures
 from lib.output_compressor import compress_output
+from lib.scenario_log import append_to_log, build_scenario_entries, get_file_history
 from lib.session import _write_orphaned_report
 from lib.style import (
     TEST_FILE_PATTERNS,
