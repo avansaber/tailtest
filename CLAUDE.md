@@ -4,9 +4,22 @@ You are running with the tailtest plugin. Your job: automatically run the test c
 
 ---
 
+## Step 0: Verify APIs before writing test code
+
+Before writing any test code, read the source file and confirm:
+- Every class, function, and method you plan to call in the test actually exists in the module
+- Every import resolves to a real name in the file
+
+Scope: verifies imports resolve and named attributes exist. Does not validate full call signatures.
+If a method does not exist, do not invent it -- adjust the scenario to test what actually exists.
+
+---
+
 ## Step 1: At the start of every user turn, check for pending work
 
 Read `.tailtest/session.json`. If `pending_files` is non-empty:
+
+**Before generating:** re-read the source file to understand what it actually does. Derive scenarios from the source's intent and behaviour -- not from your implementation plan or assumptions about what should exist.
 
 1. Note the pending files list
 2. Skip any filtered files (filter rules in Step 2)
@@ -70,6 +83,18 @@ If in doubt whether a file has testable logic, skip. A missed file is better tha
 
 ## Step 3: Generate scenarios
 
+**Output the SCENARIO PLAN first.** Before writing any test code, output the full scenario list in plain English labeled exactly as:
+
+```
+SCENARIO PLAN (not final test code):
+1. ...
+2. ...
+```
+
+Do not write test code until the scenario list is complete. Each scenario may generate one or more test cases.
+
+---
+
 Write scenarios that describe business behavior, not function signatures.
 
 **Write this:**
@@ -81,6 +106,8 @@ Write scenarios that describe business behavior, not function signatures.
 - "The `calculateTotal` function returns the correct value"
 - "The constructor sets `self.name` to the given argument"
 
+**Never test internal implementation details** -- private methods, internal state, or implementation-specific behaviour. Tests must not break when you refactor correctly.
+
 Depth is read from `.tailtest/config.json` (`depth` key). Default when absent: `standard`.
 
 | Depth | Scenarios | Scope |
@@ -88,6 +115,31 @@ Depth is read from `.tailtest/config.json` (`depth` key). Default when absent: `
 | `simple` | 2-3 | Happy path only |
 | `standard` | 5-8 | Happy path + key edge cases |
 | `thorough` | 10-15 | Happy path + edge cases + failure modes |
+
+**Baseline scenarios by language** -- always include at least these, then add behaviour-specific scenarios on top:
+
+| Language | Always test |
+|---|---|
+| Python | `None` input, empty list/dict, zero, negative number, wrong type passed |
+| TypeScript / JavaScript | `undefined`, `null`, `NaN`, wrong type, empty string `""` |
+| Go | zero value, empty struct, nil pointer |
+| Ruby | `nil`, empty array, zero |
+| Java | `null`, empty collection, zero, negative |
+| PHP | `null`, empty array, zero, empty string |
+| Rust | empty input, boundary values (0, u32::MAX or equivalent) |
+
+**Equivalence partitioning** -- for each input parameter identify: the valid partition (typical inputs that work), the invalid partition (inputs that should fail or be rejected), and the boundary (edge values at the limit of valid). Cover at least one case from each partition.
+
+**Framework-specific baseline scenarios** -- when `session.json` contains a framework tag, always include these in addition to the language baselines:
+
+| Framework | Always test |
+|---|---|
+| `django` | Request with valid auth, request without auth (expect 403/redirect), model field validation rejects invalid data, URL routes to the correct view |
+| `fastapi` | Valid request body returns expected response, missing required field returns 422, wrong field type returns 422, dependency override works in test (`app.dependency_overrides`) |
+| `nextjs` | Component renders with all required props, component handles missing optional props, async data loading state (loading / loaded / error) |
+| `rails` | Valid record saves, invalid record fails validation and returns errors, unauthorised request is rejected |
+| `laravel` | Valid input returns expected response, validation failure returns 422, unauthenticated request is rejected |
+| `nuxt` | Component renders via `mountSuspended`, required props present, handles async setup correctly |
 
 ---
 
@@ -168,6 +220,21 @@ Never auto-fix. Always ask first.
 ---
 
 ## Scenario rules
+
+**AAA structure:**
+Every test must have three clearly separated sections: Arrange (set up inputs and state), Act (call the function under test), Assert (verify the outcome). Never combine act and assert in one line when it obscures the failure reason.
+
+**One behavior per test:**
+Each test verifies exactly one behavior. If a test has multiple unrelated assertions, split it. A failing test name must identify exactly what broke.
+
+**Plain English test names:**
+Name tests after the behavior they verify, not the function they call. Use `test_order_rejected_when_stock_is_zero` not `test_process_order_returns_false`. The name should describe the scenario so a failing test name alone explains what broke.
+
+**No flaky tests:**
+Never use `time.time()`, `datetime.now()`, or `Date.now()` in test assertions -- mock system time or use fixed timestamps. Never use `random` without a fixed seed. Never share mutable state between tests (no module-level variables that tests modify). Never use `sleep()` or time-based delays. Tests must produce the same result on every run.
+
+**Mock boundaries, not internals:**
+Only mock true external boundaries: HTTP requests, database queries, filesystem I/O, system time, random generators. Never mock internal service classes, domain models, validators, or utilities -- test them with real inputs. Prefer real in-memory implementations (SQLite in-memory, `BytesIO`, `tempfile`) over mocks for anything that can be kept fast and deterministic.
 
 **Mock the right library:**
 vitest project → `vi.mock()`. Jest project → `jest.mock()`. Never mix -- `jest.*` in a vitest project throws `ReferenceError: jest is not defined`.
