@@ -1036,7 +1036,7 @@ class TestGitCommitCounts:
     def test_git_timeout_returns_empty(self, tmp_path):
         (tmp_path / ".git").mkdir()
         with patch(
-            "session_start.subprocess.run",
+            "lib.ramp_up.subprocess.run",
             side_effect=subprocess.TimeoutExpired("git", 5),
         ):
             assert _git_commit_counts(str(tmp_path)) == {}
@@ -1044,7 +1044,7 @@ class TestGitCommitCounts:
     def test_git_not_found_returns_empty(self, tmp_path):
         (tmp_path / ".git").mkdir()
         with patch(
-            "session_start.subprocess.run",
+            "lib.ramp_up.subprocess.run",
             side_effect=FileNotFoundError,
         ):
             assert _git_commit_counts(str(tmp_path)) == {}
@@ -1053,7 +1053,7 @@ class TestGitCommitCounts:
         (tmp_path / ".git").mkdir()
         mock_result = MagicMock()
         mock_result.stdout = ""
-        with patch("session_start.subprocess.run", return_value=mock_result) as mock_run:
+        with patch("lib.ramp_up.subprocess.run", return_value=mock_result) as mock_run:
             _git_commit_counts(str(tmp_path))
             args = mock_run.call_args[0][0]
             assert "--no-merges" in args
@@ -1062,7 +1062,7 @@ class TestGitCommitCounts:
         (tmp_path / ".git").mkdir()
         mock_result = MagicMock()
         mock_result.stdout = ""
-        with patch("session_start.subprocess.run", return_value=mock_result) as mock_run:
+        with patch("lib.ramp_up.subprocess.run", return_value=mock_result) as mock_run:
             _git_commit_counts(str(tmp_path))
             args = mock_run.call_args[0][0]
             assert "--max-count=500" in args
@@ -1071,7 +1071,7 @@ class TestGitCommitCounts:
         (tmp_path / ".git").mkdir()
         mock_result = MagicMock()
         mock_result.stdout = "\nservices/billing.py\nservices/billing.py\nlib/utils.py\n\n"
-        with patch("session_start.subprocess.run", return_value=mock_result):
+        with patch("lib.ramp_up.subprocess.run", return_value=mock_result):
             counts = _git_commit_counts(str(tmp_path))
         assert counts["services/billing.py"] == 2
         assert counts["lib/utils.py"] == 1
@@ -1080,7 +1080,7 @@ class TestGitCommitCounts:
         (tmp_path / ".git").mkdir()
         mock_result = MagicMock()
         mock_result.stdout = "\n\n   \nservices/billing.py\n\n"
-        with patch("session_start.subprocess.run", return_value=mock_result):
+        with patch("lib.ramp_up.subprocess.run", return_value=mock_result):
             counts = _git_commit_counts(str(tmp_path))
         assert "" not in counts
         assert "   " not in counts
@@ -1394,7 +1394,7 @@ class TestRampUpScan:
         self._make_source_file(tmp_path, "services/billing.py", 200)
         session = self._make_session(tmp_path)
         with patch(
-            "session_start.subprocess.run",
+            "lib.ramp_up.subprocess.run",
             side_effect=subprocess.TimeoutExpired("git", 5),
         ):
             ramp_up_scan(str(tmp_path), {}, session)

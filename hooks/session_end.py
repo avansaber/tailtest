@@ -12,16 +12,7 @@ import json
 import os
 import sys
 
-
-def load_session(project_root: str) -> dict:
-    session_path = os.path.join(project_root, ".tailtest", "session.json")
-    if os.path.exists(session_path):
-        try:
-            with open(session_path) as fh:
-                return json.load(fh)
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
+from lib.session import load_session
 
 
 def _file_status(source_path: str, fix_attempts: dict, deferred_failures: list) -> str:
@@ -97,7 +88,7 @@ def write_report(project_root: str, session: dict) -> bool:
         return False
     abs_path = os.path.join(project_root, report_path)
     if os.path.exists(abs_path):
-        return False  # Already written
+        return False
     content = build_report(session)
     if not content:
         return False

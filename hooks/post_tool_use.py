@@ -10,538 +10,41 @@ Target: < 1 second.  No LLM calls.  One optional git subprocess.
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import os
-import subprocess
 import sys
 from typing import Optional
 
-# ---------------------------------------------------------------------------
-# Extension -> language mapping
-# ---------------------------------------------------------------------------
-
-LANGUAGE_MAP: dict[str, str] = {
-    ".py": "python",
-    ".pyx": "python",
-    ".pyi": "python",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".mjs": "javascript",
-    ".cjs": "javascript",
-    ".vue": "javascript",  # Vue SFCs -- runner detected under javascript key
-    ".svelte": "javascript",  # Svelte SFCs
-    ".ts": "typescript",
-    ".tsx": "typescript",
-    ".mts": "typescript",
-    ".cts": "typescript",
-    ".php": "php",
-    ".go": "go",
-    ".rb": "ruby",
-    ".rs": "rust",
-    ".java": "java",
-    ".cs": "csharp",
-    ".swift": "swift",
-    ".kt": "kotlin",
-    ".kts": "kotlin",
-}
-
-# ---------------------------------------------------------------------------
-# Intelligence filter constants
-# ---------------------------------------------------------------------------
-
-SKIP_EXTENSIONS: frozenset[str] = frozenset({
-    # Config / data
-    ".yaml", ".yml", ".json", ".toml", ".env", ".ini", ".lock",
-    ".cfg", ".conf", ".properties", ".plist",
-    # Docs
-    ".md", ".rst", ".txt", ".adoc", ".asciidoc",
-    # Templates / markup
-    ".html", ".htm", ".jinja", ".jinja2", ".ejs", ".hbs", ".njk",
-    ".twig", ".mustache", ".erb", ".haml",
-    # GraphQL schemas
-    ".graphql", ".gql",
-    # Infrastructure-as-code
-    ".tf", ".hcl", ".tfvars",
-    # Images / media
-    ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp",
-    ".mp4", ".mp3", ".wav", ".pdf",
-    # Styles
-    ".css", ".scss", ".sass", ".less", ".styl",
-    # Data formats
-    ".xml", ".xsd", ".wsdl", ".csv", ".tsv",
-    # Protocols / codegen sources
-    ".proto", ".thrift", ".avsc",
-    # Shell scripts (no standard test runner for hook use)
-    ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
-    # SQL
-    ".sql",
-    # Dockerfile handled via filename check below
-})
-
-# Build-tool config compound suffixes (checked before extension)
-BUILD_CONFIG_SUFFIXES: tuple[str, ...] = (
-    ".config.js",
-    ".config.ts",
-    ".config.mjs",
-    ".config.cjs",
-    ".config.jsx",
-    ".config.tsx",
+from lib.context import (
+    build_context_note,
+    build_legacy_context_note,
+    detect_framework_context,
+    extract_file_path,
+    get_test_file_path,
 )
-
-# Path fragments that indicate non-testable directories
-SKIP_PATH_FRAGMENTS: tuple[str, ...] = (
-    "node_modules/",
-    ".venv/",
-    "venv/",
-    ".env/",
-    "env/",
-    "dist/",
-    "build/",
-    "generated/",
-    ".git/",
-    "vendor/",
-    "migrations/",
-    "db/migrate/",
-    "database/migrations/",
-    "__pycache__/",
-    ".pytest_cache/",
-    ".mypy_cache/",
-    ".ruff_cache/",
-    "target/",
-    ".cargo/",
-    "coverage/",
-    ".nyc_output/",
-    ".next/",
-    ".nuxt/",
-    ".svelte-kit/",
-    "k8s/",
-    "deploy/",
-    "infra/",
+from lib.filter import (
+    FRAMEWORK_BOILERPLATE,
+    GO_GENERATED_PREFIXES,
+    GO_GENERATED_SUFFIXES,
+    JS_GENERATED_SUFFIXES,
+    LANGUAGE_MAP,
+    RUNNER_REQUIRED_LANGUAGES,
+    SKIP_EXTENSIONS,
+    SKIP_PATH_FRAGMENTS,
+    TEST_NAME_PATTERNS,
+    BUILD_CONFIG_SUFFIXES,
+    _norm,
+    detect_language,
+    is_filtered,
+    is_test_file,
+    load_ignore_patterns,
 )
-
-# Test file name substrings
-TEST_NAME_PATTERNS: tuple[str, ...] = (
-    "test_",
-    "_test.",
-    ".test.",
-    ".spec.",
-    "_spec.",
-    "Test.",
-    "Tests.",
-    "IT.",
+from lib.session import (
+    determine_status,
+    find_package_root,
+    load_session,
+    save_session,
 )
-
-# Framework boilerplate entry points
-FRAMEWORK_BOILERPLATE: frozenset[str] = frozenset({
-    "manage.py",
-    "wsgi.py",
-    "asgi.py",
-    "__main__.py",
-    "middleware.ts",
-    "middleware.js",
-})
-
-# Go generated file markers
-GO_GENERATED_PREFIXES: tuple[str, ...] = ("mock_",)
-GO_GENERATED_SUFFIXES: tuple[str, ...] = ("_mock.go", "_gen.go", ".pb.go")
-
-# JS/TS generated file suffixes
-JS_GENERATED_SUFFIXES: tuple[str, ...] = (".generated.ts", ".graphql.ts")
-
-# Languages that must have a configured runner in session.json to proceed.
-# Unlisted languages (python, typescript, javascript) may use the first available runner.
-RUNNER_REQUIRED_LANGUAGES: frozenset[str] = frozenset({"php", "go", "ruby", "rust", "java"})
-
-
-# ---------------------------------------------------------------------------
-# Pure helper functions (unit-tested directly)
-# ---------------------------------------------------------------------------
-
-
-def _norm(path: str) -> str:
-    """Normalise path separators to forward-slash."""
-    return path.replace("\\", "/")
-
-
-def detect_language(file_path: str) -> Optional[str]:
-    """Return the language name for a file path, or None if not recognised."""
-    _, ext = os.path.splitext(file_path)
-    return LANGUAGE_MAP.get(ext.lower())
-
-
-def is_test_file(rel_path: str) -> bool:
-    """Return True if the filename looks like a test file."""
-    name = os.path.basename(rel_path)
-    return any(pat in name for pat in TEST_NAME_PATTERNS)
-
-
-def is_filtered(
-    file_path: str,
-    project_root: str,
-    ignore_patterns: list[str],
-) -> bool:
-    """Return True when the file should be silently skipped.
-
-    Never reads file content -- content-based checks (re-export barrels,
-    type-only TS files, Server Components) are Claude's responsibility.
-    """
-    abs_path = os.path.abspath(file_path)
-    rel_path = _norm(os.path.relpath(abs_path, project_root))
-    name = os.path.basename(rel_path)
-    lower_name = name.lower()
-
-    # 1. .tailtest-ignore patterns (gitignore-style)
-    for pat in ignore_patterns:
-        if pat.endswith("/"):
-            # Directory pattern: "scripts/" matches scripts/deploy.py, scripts/a/b.py, etc.
-            if rel_path.startswith(pat):
-                return True
-        elif fnmatch.fnmatch(rel_path, pat) or fnmatch.fnmatch(name, pat):
-            return True
-
-    # 2. Path fragments (directory-level exclusions)
-    for frag in SKIP_PATH_FRAGMENTS:
-        if frag in rel_path:
-            return True
-
-    # 3. Compound config suffixes before single-ext check
-    for suffix in BUILD_CONFIG_SUFFIXES:
-        if lower_name.endswith(suffix):
-            return True
-
-    # 4. Single-extension exclusions
-    _, ext = os.path.splitext(name)
-    if ext.lower() in SKIP_EXTENSIONS:
-        return True
-
-    # 5. Dockerfile (no extension)
-    if lower_name in ("dockerfile",) or lower_name.endswith(".dockerfile"):
-        return True
-
-    # 6. Test files
-    if is_test_file(rel_path):
-        return True
-
-    # 7. Framework boilerplate
-    if name in FRAMEWORK_BOILERPLATE:
-        return True
-
-    # 8. Go generated files
-    if name.endswith(".go"):
-        if any(name.startswith(p) for p in GO_GENERATED_PREFIXES):
-            return True
-        if any(name.endswith(s) for s in GO_GENERATED_SUFFIXES):
-            return True
-
-    # 9. JS/TS generated files
-    if any(name.endswith(s) for s in JS_GENERATED_SUFFIXES):
-        return True
-
-    return False
-
-
-def load_ignore_patterns(project_root: str) -> list[str]:
-    """Read .tailtest-ignore from project root.  Returns [] if absent."""
-    ignore_path = os.path.join(project_root, ".tailtest-ignore")
-    if not os.path.exists(ignore_path):
-        return []
-    patterns: list[str] = []
-    try:
-        with open(ignore_path) as fh:
-            for line in fh:
-                stripped = line.strip()
-                if stripped and not stripped.startswith("#"):
-                    patterns.append(stripped)
-    except OSError:
-        pass
-    return patterns
-
-
-def is_git_tracked(file_path: str, project_root: str) -> Optional[bool]:
-    """Return True if tracked by git, False if untracked, None if git unavailable."""
-    if not os.path.isdir(os.path.join(project_root, ".git")):
-        return None
-    try:
-        result = subprocess.run(
-            ["git", "ls-files", "--error-unmatch", os.path.abspath(file_path)],
-            capture_output=True,
-            cwd=project_root,
-            timeout=2,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return None
-
-
-def determine_status(
-    file_path: str,
-    project_root: str,
-    touched_files: list[str],
-) -> str:
-    """Return 'new-file' or 'legacy-file'.
-
-    Git project:  tracked in git -> legacy-file,  untracked -> new-file.
-    No-git:       first touch this session -> new-file,  repeat -> legacy-file.
-    """
-    rel_path = _norm(os.path.relpath(os.path.abspath(file_path), project_root))
-    tracked = is_git_tracked(file_path, project_root)
-    if tracked is None:
-        return "legacy-file" if rel_path in touched_files else "new-file"
-    return "legacy-file" if tracked else "new-file"
-
-
-def find_package_root(
-    rel_path: str,
-    packages: dict,
-) -> Optional[str]:
-    """Return the relative path of the deepest package containing rel_path.
-
-    packages: dict keyed by package relative paths (e.g. "packages/web").
-    Returns the key of the best match, or None if no package contains the file.
-    """
-    rel_path = _norm(rel_path)
-    best: Optional[str] = None
-    best_len = -1
-    for pkg_rel in packages:
-        pkg_prefix = _norm(pkg_rel).rstrip("/") + "/"
-        if rel_path.startswith(pkg_prefix):
-            if len(pkg_prefix) > best_len:
-                best_len = len(pkg_prefix)
-                best = pkg_rel
-    return best
-
-
-def load_session(project_root: str) -> dict:
-    """Load .tailtest/session.json.  Returns minimal empty dict if absent."""
-    session_path = os.path.join(project_root, ".tailtest", "session.json")
-    if os.path.exists(session_path):
-        try:
-            with open(session_path) as fh:
-                return json.load(fh)
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {
-        "pending_files": [],
-        "touched_files": [],
-        "runners": {},
-        "fix_attempts": {},
-        "deferred_failures": [],
-        "generated_tests": {},
-        "packages": {},
-    }
-
-
-def save_session(project_root: str, session: dict) -> None:
-    """Write session dict to .tailtest/session.json."""
-    tailtest_dir = os.path.join(project_root, ".tailtest")
-    os.makedirs(tailtest_dir, exist_ok=True)
-    session_path = os.path.join(tailtest_dir, "session.json")
-    with open(session_path, "w") as fh:
-        json.dump(session, fh, indent=2)
-        fh.write("\n")
-
-
-def extract_file_path(tool_name: str, tool_input: dict) -> Optional[str]:
-    """Extract the file path written or edited from a tool_input dict."""
-    if tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
-        return tool_input.get("file_path")
-    return None
-
-
-def get_test_file_path(
-    rel_path: str,
-    language: str,
-    runners: dict,
-    project_root: str,
-) -> Optional[str]:
-    """Return the absolute path of the expected test file for a source file.
-
-    Returns None if the language is unsupported or no runner is found.
-    Does NOT check whether the file exists on disk.
-    """
-    runner_info = runners.get(language)
-    if not runner_info and runners and language not in RUNNER_REQUIRED_LANGUAGES:
-        runner_info = next(iter(runners.values()))
-    if not runner_info:
-        return None
-
-    basename = os.path.splitext(os.path.basename(rel_path))[0]
-
-    if language == "rust":
-        # Rust tests are inline in the source file -- no separate test file
-        return None
-
-    if language == "go":
-        # Co-located: {same_dir}/{basename}_test.go
-        source_dir = os.path.dirname(rel_path)
-        test_filename = f"{basename}_test.go"
-        if source_dir:
-            return os.path.join(project_root, source_dir, test_filename)
-        return os.path.join(project_root, test_filename)
-
-    test_location = runner_info.get("test_location", "tests/").rstrip("/")
-
-    if language == "python":
-        test_filename = f"test_{basename}.py"
-    elif language == "typescript":
-        test_filename = f"{basename}.test.ts"
-    elif language == "javascript":
-        # Vue/Svelte SFCs may live in TypeScript projects; use .test.ts when
-        # a typescript runner is present (tsconfig.json was found at session start).
-        if "typescript" in runners:
-            test_filename = f"{basename}.test.ts"
-        else:
-            test_filename = f"{basename}.test.js"
-    elif language == "ruby":
-        # rspec → _spec.rb, minitest → _test.rb
-        if "spec" in test_location:
-            test_filename = f"{basename}_spec.rb"
-        else:
-            test_filename = f"{basename}_test.rb"
-    elif language == "java":
-        test_filename = f"{basename}Test.java"
-    elif language == "php":
-        # Check both Unit and Feature dirs for existing test files (legacy-file lookup)
-        test_filename = f"{basename}Test.php"
-        for subdir in ("tests/Unit", "tests/Feature", "tests"):
-            candidate = os.path.join(project_root, subdir, test_filename)
-            if os.path.exists(candidate):
-                return candidate
-        # New file: route Unit vs Feature based on source path (Laravel convention)
-        is_feature = "/Http/" in rel_path or "/Controllers/" in rel_path
-        if is_feature:
-            feature_dir = runner_info.get("feature_test_dir", "tests/Feature").rstrip("/")
-            return os.path.join(project_root, feature_dir, test_filename)
-        unit_dir = runner_info.get("unit_test_dir", "tests/Unit").rstrip("/")
-        return os.path.join(project_root, unit_dir, test_filename)
-    else:
-        return None
-
-    return os.path.join(project_root, test_location, test_filename)
-
-
-def build_legacy_context_note(
-    rel_path: str,
-    runner_cmd: str,
-    test_rel_path: str,
-) -> str:
-    """Build the additionalContext note for a legacy file that has existing tests.
-
-    Outputs a direct run-and-verify instruction.  No generate step.
-    """
-    return (
-        f"tailtest: {rel_path} edited (existing file). "
-        f"Do not generate new tests. "
-        f"Run: `{runner_cmd} {test_rel_path}`"
-    )
-
-
-def detect_framework_context(
-    rel_path: str,
-    language: str,
-    runners: dict,
-) -> str:
-    """Return a framework context hint for the additionalContext note, or empty string."""
-    runner_info = runners.get(language)
-    # Vue/Svelte SFCs are mapped to "javascript" but the runner may be stored under
-    # "typescript" when tsconfig.json is present (and vice versa).  Allow cross-lookup
-    # within the JS/TS family only.
-    if not runner_info and language == "javascript" and "typescript" in runners:
-        runner_info = runners["typescript"]
-    elif not runner_info and language == "typescript" and "javascript" in runners:
-        runner_info = runners["javascript"]
-    if not runner_info:
-        return ""
-    framework = runner_info.get("framework")
-    style = runner_info.get("style")
-    if framework == "laravel":
-        if "/Http/" in rel_path or "/Controllers/" in rel_path:
-            return "laravel/feature"
-        return "laravel/unit"
-    if style == "inline":
-        return "rust/inline"
-    if style == "colocated":
-        return "go/colocated"
-    return framework or ""
-
-
-def build_context_note(
-    rel_path: str,
-    status: str,
-    language: str,
-    pending_count: int,
-    runners: dict,
-    project_root: Optional[str] = None,
-    existing_test_path: Optional[str] = None,
-) -> str:
-    """Build the one-line additionalContext note for Claude (new-file path).
-
-    existing_test_path: relative path (from project_root) to a test file
-    already generated for rel_path this session.  When provided, emits
-    ``update existing test at {path}`` instead of ``write test to {path}``
-    and skips new-file-only hints (.env.testing, etc.).
-    """
-    runner_name: Optional[str] = None
-    if language in runners:
-        runner_name = runners[language].get("command")
-    elif runners:
-        runner_name = next(iter(runners.values())).get("command")
-
-    framework_ctx = detect_framework_context(rel_path, language, runners)
-    lang_info = f"{language}, {framework_ctx}" if framework_ctx else language
-    parts = [f"tailtest: {rel_path} queued ({status}, {lang_info})"]
-
-    if existing_test_path:
-        # A test was already generated for this file this session -- update it.
-        parts.append(f"update existing test at {existing_test_path}")
-    else:
-        # Include the exact target path so Claude doesn't have to infer it.
-        # Always for single-file queues.  Also always for PHP because Feature vs
-        # Unit routing is non-obvious and Claude tends to default to Unit.
-        should_hint = (pending_count == 1) or (language == "php")
-        if should_hint and project_root:
-            test_abs = get_test_file_path(rel_path, language, runners, project_root)
-            if test_abs is None and language == "rust":
-                if pending_count == 1:
-                    parts.append(f"add #[cfg(test)] block to {rel_path}")
-            elif test_abs:
-                test_rel = _norm(os.path.relpath(test_abs, project_root))
-                parts.append(f"write test to {test_rel}")
-
-        # Nuxt requires mountSuspended -- give the exact import line so Claude
-        # cannot substitute @vue/test-utils mount (training bias is very strong).
-        if framework_ctx == "nuxt":
-            parts.append(
-                "add `import { mountSuspended } from '@nuxt/test-utils'` to test imports"
-                " and call `await mountSuspended(Component, { props: ... })`"
-                " -- do NOT import or call mount from @vue/test-utils"
-            )
-
-        # Laravel Feature tests need a skip comment when .env.testing is absent.
-        if framework_ctx == "laravel/feature" and project_root:
-            env_testing = os.path.join(project_root, ".env.testing")
-            if not os.path.exists(env_testing):
-                parts.append(
-                    "no .env.testing found -- add"
-                    " '// tailtest: not run -- .env.testing required."
-                    " Run manually after setup.' at top of test"
-                )
-
-    if pending_count > 1:
-        parts.append(f"{pending_count} files pending -- write tests for all of them")
-    if runner_name:
-        parts.append(f"runner: {runner_name}")
-    parts.append(
-        "Read .tailtest/session.json, write test file(s) to disk, run them, "
-        "report results -- then respond to the user"
-    )
-    return ". ".join(parts) + "."
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -573,7 +76,6 @@ def main() -> None:
 
     session = load_session(project_root)
 
-    # Exit immediately if session is paused
     if session.get("paused", False):
         sys.exit(0)
 
@@ -583,29 +85,22 @@ def main() -> None:
     touched_files: list[str] = session.get("touched_files", [])
     rel_path = _norm(os.path.relpath(os.path.abspath(file_path), project_root))
 
-    # Resolve effective runners: prefer per-package runners when file lives in a package.
     runners: dict = global_runners
     if packages:
         pkg_key = find_package_root(rel_path, packages)
         if pkg_key:
             runners = packages[pkg_key]
 
-    # RUNNER_REQUIRED_LANGUAGES must have an explicitly configured runner.
-    # Unlike Python/TS/JS, these cannot be bootstrapped from a first-available fallback.
     if language in RUNNER_REQUIRED_LANGUAGES and language not in runners:
         sys.exit(0)
 
     status = determine_status(file_path, project_root, touched_files)
 
-    # Update touched_files regardless of status
     if rel_path not in touched_files:
         touched_files.append(rel_path)
         session["touched_files"] = touched_files
 
     if status == "legacy-file":
-        # Legacy files do NOT go into pending_files.
-        # Emit a direct "run existing tests" instruction if a test file exists;
-        # stay silent otherwise.
         try:
             save_session(project_root, session)
         except OSError:
@@ -622,7 +117,6 @@ def main() -> None:
         print(json.dumps({"hookSpecificOutput": {"additionalContext": context}}))
         return
 
-    # new-file: batch into pending_files for next-turn generation
     pending_files: list[dict] = session.get("pending_files", [])
     if rel_path not in [p["path"] for p in pending_files]:
         pending_files.append({
@@ -637,10 +131,6 @@ def main() -> None:
     except OSError:
         pass
 
-    # Check whether a test was already generated for this file this session.
-    # If the mapped test file exists on disk, emit an "update" hint instead of
-    # a "write new" hint so Claude amends the existing test rather than
-    # regenerating it from scratch.
     generated_tests: dict = session.get("generated_tests", {})
     existing_test_path: Optional[str] = None
     if rel_path in generated_tests:
