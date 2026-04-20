@@ -6,6 +6,8 @@ import os
 from typing import Optional
 
 from lib.filter import RUNNER_REQUIRED_LANGUAGES, _norm
+from lib.last_failures_formatter import format_last_failures
+from lib.session import load_session
 from lib.style import build_style_context
 
 
@@ -66,6 +68,12 @@ def build_startup_context(
         f"tailtest: session started. Project root: {project_root}. "
         f"Runners: {runner_text}. Depth: {depth}."
     )
+
+    session = load_session(project_root)
+    last_failures = session.get("last_failures", [])
+    failure_line = format_last_failures(last_failures)
+    if failure_line:
+        lines.append(failure_line)
 
     if ramp_up_count > 0:
         lines.append(

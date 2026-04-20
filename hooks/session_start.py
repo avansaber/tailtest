@@ -61,6 +61,8 @@ from lib.runners import (
     scan_packages,
     scan_runners,
 )
+from lib.last_failures_formatter import compute_last_failures, format_last_failures
+from lib.output_compressor import compress_output
 from lib.session import _write_orphaned_report
 from lib.style import (
     TEST_FILE_PATTERNS,

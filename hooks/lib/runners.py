@@ -443,6 +443,7 @@ def create_session(project_root: str, runners: dict, depth: str) -> dict:
         "deferred_failures": [],
         "generated_tests": {},
         "packages": packages,
+        "last_failures": [],
     }
     tailtest_dir = os.path.join(project_root, ".tailtest")
     os.makedirs(tailtest_dir, exist_ok=True)

@@ -73,6 +73,7 @@ def load_session(project_root: str) -> dict:
         "deferred_failures": [],
         "generated_tests": {},
         "packages": {},
+        "last_failures": [],
     }
 
 

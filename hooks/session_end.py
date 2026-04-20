@@ -12,7 +12,8 @@ import json
 import os
 import sys
 
-from lib.session import load_session
+from lib.last_failures_formatter import compute_last_failures
+from lib.session import load_session, save_session
 
 
 def _file_status(source_path: str, fix_attempts: dict, deferred_failures: list) -> str:
@@ -109,6 +110,15 @@ def main() -> None:
         event = {}
     project_root: str = event.get("cwd", os.getcwd())
     session = load_session(project_root)
+
+    last_failures = compute_last_failures(session)
+    if last_failures != session.get("last_failures"):
+        session["last_failures"] = last_failures
+        try:
+            save_session(project_root, session)
+        except OSError:
+            pass
+
     write_report(project_root, session)
 
 
