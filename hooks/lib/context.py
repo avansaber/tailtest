@@ -69,8 +69,8 @@ def build_startup_context(
 
     if ramp_up_count > 0:
         lines.append(
-            f"tailtest ramp-up: first session detected -- {ramp_up_count} file(s) "
-            f"queued for initial coverage scan."
+            f"tailtest: initial coverage scan -- first session detected. "
+            f"{ramp_up_count} file(s) queued for coverage."
         )
 
     bootstrap = build_bootstrap_note(runners)

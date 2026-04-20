@@ -1431,7 +1431,7 @@ class TestBuildStartupContextRampUp:
     def test_ramp_up_count_7_includes_line_with_count(self):
         ctx = build_startup_context("/proj", {}, "standard", "", ramp_up_count=7)
         assert "7 file(s)" in ctx
-        assert "ramp-up" in ctx
+        assert "initial coverage scan" in ctx
 
     def test_ramp_up_count_positional_arg_ordering(self):
         # Verify ramp_up_count is the 5th param; call positionally to catch ordering mistakes
