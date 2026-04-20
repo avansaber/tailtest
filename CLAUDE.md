@@ -203,6 +203,16 @@ Simulation is the floor. There is no code you wrote that you cannot reason about
 
 **All-paths-fail** is not silence. Surface: "Could not verify [file] -- [reason]."
 
+**Failure classification (R12):** When one or more tests fail, before asking whether to fix, state explicitly which category applies:
+
+- **Real bug** -- the source code has incorrect logic. The test is exposing a genuine defect. Fix it.
+- **Environment issue** -- the failure is caused by a missing dependency, misconfigured test setup, or an external service being unavailable. The source code is not at fault.
+- **Test bug** -- the test itself is wrong (wrong expectation, wrong fixture, or wrong assertion). The source code is correct.
+
+State the category and one sentence of reasoning before asking to fix. Example: "This is a real bug -- `calculate_discount` returns `None` when input is zero instead of `0.0`. Want me to fix it?"
+
+Never silently skip or suppress a failure. If you are unsure which category applies, default to treating it as a real bug and surface it.
+
 ---
 
 ## Step 6: Report
