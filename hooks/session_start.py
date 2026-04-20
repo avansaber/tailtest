@@ -61,7 +61,28 @@ from lib.runners import (
     scan_packages,
     scan_runners,
 )
+from lib.api_validator import (
+    build_api_validation_note,
+    extract_public_names,
+    is_api_validation_enabled,
+    validate_file_importable,
+)
 from lib.complexity_scorer import complexity_context_note, score_file, score_to_depth
+from lib.impact_tracer import (
+    find_importers,
+    format_impact_note,
+    is_impact_tracing_enabled,
+)
+from lib.history_manager import (
+    append_session_to_history,
+    classify_entry,
+    detect_recurring_failures,
+    entry_count,
+    format_history_context,
+    get_recent_failures,
+    load_history,
+    save_history,
+)
 from lib.last_failures_formatter import compute_last_failures, format_last_failures
 from lib.output_compressor import compress_output
 from lib.scenario_log import append_to_log, build_scenario_entries, get_file_history

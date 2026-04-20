@@ -5,8 +5,11 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+from lib.api_validator import build_api_validation_note, is_api_validation_enabled
 from lib.complexity_scorer import complexity_context_note
 from lib.filter import RUNNER_REQUIRED_LANGUAGES, _norm
+from lib.history_manager import format_history_context
+from lib.impact_tracer import find_importers, format_impact_note, is_impact_tracing_enabled
 from lib.last_failures_formatter import format_last_failures
 from lib.session import load_session
 from lib.style import build_style_context
@@ -75,6 +78,11 @@ def build_startup_context(
     failure_line = format_last_failures(last_failures)
     if failure_line:
         lines.append(failure_line)
+
+    # A3/H6: cross-session history context (regressions + recurring failures)
+    history_line = format_history_context(project_root)
+    if history_line:
+        lines.append(history_line)
 
     if ramp_up_count > 0:
         lines.append(
@@ -298,9 +306,29 @@ def build_context_note(
 
     if project_root:
         abs_path = os.path.join(project_root, rel_path)
+
         complexity_hint = complexity_context_note(abs_path, configured_depth)
         if complexity_hint:
             parts.append(complexity_hint)
+
+        # H5: impact tracing (opt-in, Python only)
+        if language == "python" and is_impact_tracing_enabled(project_root):
+            try:
+                importers = find_importers(rel_path, project_root)
+                impact_note = format_impact_note(rel_path, importers)
+                if impact_note:
+                    parts.append(impact_note)
+            except Exception:
+                pass
+
+        # S4: API validation (opt-in, Python only)
+        if language == "python" and is_api_validation_enabled(project_root):
+            try:
+                api_note = build_api_validation_note(abs_path, project_root)
+                if api_note:
+                    parts.append(api_note)
+            except Exception:
+                pass
 
     parts.append(
         "Read .tailtest/session.json, write test file(s) to disk, run them, "

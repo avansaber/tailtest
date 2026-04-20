@@ -13,6 +13,7 @@ import os
 import sys
 
 from lib.complexity_scorer import score_file
+from lib.history_manager import append_session_to_history
 from lib.last_failures_formatter import compute_last_failures
 from lib.scenario_log import append_to_log, build_scenario_entries
 from lib.session import load_session, save_session
@@ -126,6 +127,11 @@ def main() -> None:
         existing_log = session.get("scenario_log", [])
         session["scenario_log"] = append_to_log(existing_log, new_entries)
         changed = True
+        # A1: persist to cross-session history.json
+        try:
+            append_session_to_history(project_root, new_entries)
+        except Exception:
+            pass
 
     # H1: store complexity scores for tested files (for future session reference)
     generated_tests: dict = session.get("generated_tests", {})
