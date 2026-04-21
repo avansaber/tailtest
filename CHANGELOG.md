@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.9.0 -- 2026-04-20
+
+Quality layer and cross-session memory. 424 tests.
+
+**Rule layer (all new):** Fourteen rules now govern how tests are generated -- requirement-first derivation (reads the original prompt, not the implementation), language-keyed baseline scenarios (null, empty, zero, negative, type mismatch for Python; undefined, null, NaN, empty string for TypeScript/JavaScript), flakiness ban list (no `time.time()`, no unseeded `random`, no shared state, no `sleep()`), AAA structure enforcement, one-behavior-per-test, plain-English test names, no-internals rule (tests survive correct refactoring), boundary-only mocking (only external systems: HTTP, DB, filesystem, time, random -- never internal classes or validators), framework-keyed scenario templates (Django, FastAPI, Next.js), equivalence partitioning, pre-write API check (verify imports exist before writing test code), SCENARIO PLAN label (scenario list in plain English before any test code is written), and failure classification (real bug / environment issue / test bug stated before asking to fix -- never silently skipped).
+
+**Hook enrichment:** Per-file depth scoring based on path signals (auth, billing, payment: +4; admin, delete, migrate: +3) and content signals (HTTP calls, DB access: +3 each; branches and public functions: up to +4/+5). Scores map to simple (2-4), standard (5-8), or thorough (10-15) scenario counts with reasoning shown when depth exceeds 8. Cross-turn context: failures from the previous session are injected at session start so Claude knows about prior problems without re-explanation. Long test output is compressed (function name, assertion, expected/received) when output exceeds 50 lines.
+
+**Cross-session memory:** `.tailtest/history.json` accumulates outcomes across sessions (1000-entry cap). Entries are classified as gap (first time tested), passed, fixed (failed then resolved within session), or regression (was passing, now failing). At session start, recent failures and regressions are injected into context. Files that fail in 3 or more distinct sessions are flagged as recurring.
+
+**Opt-in (off by default):** Impact tracing traces which files import the changed file (Python AST, opt-in via `impact_tracing: true`). API validation checks that public functions and classes in a file are importable before tests are written, guarding against hallucinated APIs where both source and test reference a function that does not exist (`api_validation: true`).
+
 ## v3.8.0 -- 2026-04-16
 Compatibility update for Claude Opus 4.7. Opus 4.7 follows instructions more literally and uses fewer tool calls by default than Opus 4.6. Two changes to the hook's context note address this: (1) when multiple files are pending, the note now explicitly says "write tests for all of them" -- Opus 4.7 will not silently generalize a write-one-test instruction across N files; (2) the note ending now reads "write test file(s) to disk, run them, report results -- then respond to the user" instead of "Read session.json before responding to the user," which previously let Opus 4.7 read the file and respond without ever writing tests.
 
