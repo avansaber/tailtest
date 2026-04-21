@@ -27,9 +27,9 @@ Read `.tailtest/session.json`. If `pending_files` is non-empty:
 4. **Before generating, check for ramp-up framing:** if `session.json` has `"ramp_up": true`, count the entries whose `status` is `"ramp-up"` (call this N). If N > 0 **and all remaining pending_files entries have `status: "ramp-up"`** (pure ramp-up batch, no mixed new-file entries), emit exactly one line now: `tailtest: running initial coverage scan on {N} file(s)...` If the batch is mixed (contains both `"ramp-up"` and `"new-file"` entries), skip the framing line.
 5. Generate scenarios for all remaining files as one unit of work -- treat `"ramp-up"` entries identically to `"new-file"` (generate scenarios, write test, execute, report)
 6. Write test file and execute (Steps 4–5)
-6. Report failures -- stay silent if all pass (Step 6)
-7. Write `"pending_files": []` back to `.tailtest/session.json`
-8. Then address the user's message
+7. Report failures -- stay silent if all pass (Step 6)
+8. Write `"pending_files": []` back to `.tailtest/session.json`
+9. Then address the user's message
 
 **Note:** if a framing line was emitted in step 4, still emit the Step 6 result line normally after execution. Both lines appear in the same turn:
 ```
