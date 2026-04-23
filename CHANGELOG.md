@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.13.0 -- 2026-04-23
+
+C# / .NET language support. 459 tests.
+
+**Detection:** New `detect_dotnet_runner` picks up projects with `*.csproj`, `*.sln`, or `global.json`. Runner is `dotnet test`. Walks the solution (bounded depth 3, skips `bin`/`obj`) to enumerate test projects; records them in `runners.csharp.test_projects`. Three layouts handled: flat (`tests/` default), single sibling `*.Tests` project (becomes the `test_location`), multiple test projects (first is default, per-source-file resolution happens at test-write time).
+
+**Per-source-file test project resolution:** The rule file's Path row instructs the agent to read each test project's `.csproj` as text and match `<ProjectReference Include="...">` against the source file's owning `.csproj`. Simple string-level matching works because `.csproj` is well-formatted XML. Keeps hook-side code minimal; Claude does the targeted resolution when it matters.
+
+**R1 baseline:** `null`, `default(T)`, empty `IEnumerable<T>`, `ArgumentNullException` on invalid input, zero / negative numeric.
+
+**Scenario rules:** Covers xUnit (`[Fact]`, `[Theory]`, `[InlineData]`, `IClassFixture<T>`, `async Task`), NUnit (`[Test]`, `[TestCase]`, `Assert.That`), MSTest (`[TestMethod]`, `[DataTestMethod]`). Moq patterns (`Mock<T>`, `Setup`, `It.IsAny<T>`). Guidance against mocking `DbContext` directly (use in-memory provider). ASP.NET Core integration via `WebApplicationFactory<Program>` + `CreateClient()`. Determinism requirements for `DateTime.Now` / `Guid.NewGuid` / `Task.Delay`.
+
+**Monorepo detection:** `*.sln` at project root now marks a project as monorepo-like (same treatment as pnpm-workspace.yaml, nx.json, etc.).
+
 ## v3.12.0 -- 2026-04-23
 
 Kotlin language support. 447 tests.

@@ -126,6 +126,7 @@ Depth is read from `.tailtest/config.json` (`depth` key). Default when absent: `
 | Ruby | `nil`, empty array, zero |
 | Java | `null`, empty collection, zero, negative |
 | Kotlin | `null`, empty collection, zero, negative, `Result.failure` |
+| C# | `null`, `default(T)`, empty `IEnumerable<T>`, `ArgumentNullException` on invalid input, zero / negative numeric |
 | PHP | `null`, empty array, zero, empty string |
 | Rust | empty input, boundary values (0, u32::MAX or equivalent) |
 
@@ -169,6 +170,7 @@ Write the scenarios as executable test code to disk.
 | Ruby | `runners.ruby.test_location` from session.json | `{source_basename}_spec.rb` (rspec) or `{source_basename}_test.rb` (minitest) |
 | Java | `runners.java.test_location` from session.json, default `src/test/java/` | `{source_basename}Test.java` |
 | Kotlin | `runners.java.test_location` from session.json when it ends in `kotlin/`; otherwise `src/test/kotlin/` | `{source_basename}Test.kt` |
+| C# | `runners.csharp.test_location` from session.json. If `runners.csharp.test_projects` has more than one entry, read each test project's `.csproj` as text and pick the one whose `<ProjectReference Include="...">` path resolves to the source file's owning `.csproj`. Mirror source subpath under the chosen test project | `{source_basename}Tests.cs` |
 | PHP (laravel/unit context) | `runners.php.unit_test_dir` from session.json, default `tests/Unit/` | `{source_basename}Test.php` |
 | PHP (laravel/feature context) | `runners.php.feature_test_dir` from session.json, default `tests/Feature/` | `{source_basename}Test.php` |
 
@@ -283,6 +285,9 @@ Use `@SpringBootTest` for integration tests and `@WebMvcTest` for controller sli
 
 **Kotlin:**
 Tests live in `src/test/kotlin/` (parallel to `src/main/kotlin/`). Prefer `kotlin.test` assertions (`assertEquals`, `assertTrue`, `assertFailsWith`) over JUnit's for idiomatic output; both work. Use JUnit 5 (`@Test`, `@BeforeEach`) for lifecycle. For coroutine-based code, wrap assertions in `runTest { ... }` from `kotlinx-coroutines-test` -- never call `runBlocking` in tests (loses virtual time, allows accidental real delays). For `sealed class` hierarchies, write one test per branch and use a `when` expression with `else -> error(...)` so a new branch added later fails the test as a compile error, not silently. For `data class` equality, compare whole instances (`assertEquals(expected, actual)`) rather than field-by-field. Use `Result<T>` testing with `assertTrue(result.isFailure)` + `assertIs<ExpectedException>(result.exceptionOrNull())`. Kotlin's null safety means most "null input" R1 scenarios target nullable parameters (`fun(x: Foo?)`) or platform types from Java interop; test these explicitly.
+
+**C# / .NET:**
+Tests go in a sibling `*.Tests` project (e.g. `MyApp.Api/` -> `MyApp.Api.Tests/`) or a central test project referenced by the source project via `<ProjectReference>`. Detect the test framework from `.csproj` `<PackageReference>` elements: `xunit` -> xUnit, `NUnit` -> NUnit, `MSTest.TestFramework` -> MSTest. Pick one style consistently; never mix assertion libraries in one test. **xUnit:** `[Fact]` for single test, `[Theory]` + `[InlineData(...)]` for parametrised; `Assert.Equal(expected, actual)`, `Assert.Throws<ExceptionType>(() => ...)`; `IClassFixture<T>` for shared setup; test method is `public async Task` for async (never `async void`). **NUnit:** `[Test]`, `[TestCase(...)]`, `[SetUp]`/`[TearDown]`; `Assert.That(actual, Is.EqualTo(expected))`. **MSTest:** `[TestClass]`, `[TestMethod]`, `[DataTestMethod]` + `[DataRow(...)]`; `Assert.AreEqual`. Use Moq for mocking: `var mock = new Mock<IOrderRepo>(); mock.Setup(r => r.Find(It.IsAny<int>())).Returns(order); var sut = new Service(mock.Object);`. Never mock `DbContext` directly -- use the in-memory provider (`UseInMemoryDatabase`) or SQLite in-memory. For ASP.NET Core integration tests, use `WebApplicationFactory<Program>` + `factory.CreateClient()` rather than spinning a real server. Keep tests deterministic: no `DateTime.Now`, `Guid.NewGuid()` without seed, or `Task.Delay`; inject `IClock`/`TimeProvider` or pass values explicitly.
 
 **Nuxt:**
 Do NOT use `mount` from `@vue/test-utils` -- it is synchronous and skips Nuxt's async component setup, producing empty or incorrect output. Always use `mountSuspended` from `@nuxt/test-utils`. Exact pattern:

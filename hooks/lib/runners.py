@@ -320,6 +320,105 @@ def detect_deno_runner(directory: str, project_root: str) -> Optional[dict]:
     }
 
 
+def _find_dotnet_test_projects(directory: str, project_root: str) -> list[str]:
+    """Find .NET test project directories (ending in .Tests or containing a .Tests.csproj).
+
+    Walks up to 3 levels deep from `directory`. Skips bin/obj/node_modules.
+    Returns relative paths from project_root, sorted for deterministic output.
+    """
+    found: set[str] = set()
+    skip = {"bin", "obj", "node_modules", ".git", "packages", ".vs"}
+
+    def _walk(path: str, depth: int) -> None:
+        if depth > 3:
+            return
+        try:
+            entries = list(os.scandir(path))
+        except OSError:
+            return
+        for entry in entries:
+            if entry.is_file() and entry.name.endswith(".csproj"):
+                # Test project heuristic: directory name ends in .Tests or .Test,
+                # OR the csproj references a test SDK.
+                dir_name = os.path.basename(os.path.dirname(entry.path))
+                is_test_dir = dir_name.endswith(".Tests") or dir_name.endswith(".Test")
+                is_test_by_content = False
+                if not is_test_dir:
+                    try:
+                        with open(entry.path) as fh:
+                            content = fh.read()
+                        if "Microsoft.NET.Test.Sdk" in content or 'IsTestProject' in content:
+                            is_test_by_content = True
+                    except OSError:
+                        pass
+                if is_test_dir or is_test_by_content:
+                    rel_dir = os.path.relpath(
+                        os.path.dirname(entry.path), project_root
+                    ).replace("\\", "/")
+                    found.add(rel_dir)
+            elif entry.is_dir() and entry.name not in skip and not entry.name.startswith("."):
+                _walk(entry.path, depth + 1)
+
+    _walk(directory, 0)
+    return sorted(found)
+
+
+def detect_dotnet_runner(directory: str, project_root: str) -> Optional[dict]:
+    """Detect .NET test runner from *.csproj, global.json, or *.sln.
+
+    Enumerates test projects but does not parse <ProjectReference> XML.
+    Per-source-file test-project selection happens in the rule file at
+    test-write time (Claude reads the relevant .csproj).
+    """
+    has_sln = any(
+        f.endswith(".sln")
+        for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))
+    ) if os.path.isdir(directory) else False
+    has_csproj = any(
+        f.endswith(".csproj")
+        for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))
+    ) if os.path.isdir(directory) else False
+    has_global_json = os.path.exists(os.path.join(directory, "global.json"))
+
+    # Also scan immediate subdirs for *.csproj (common layout: sln at root, projects in subdirs)
+    if not (has_sln or has_csproj or has_global_json):
+        try:
+            for entry in os.scandir(directory):
+                if entry.is_dir() and not entry.name.startswith("."):
+                    try:
+                        for sub in os.scandir(entry.path):
+                            if sub.is_file() and sub.name.endswith(".csproj"):
+                                has_csproj = True
+                                break
+                    except OSError:
+                        pass
+                if has_csproj:
+                    break
+        except OSError:
+            pass
+
+    if not (has_sln or has_csproj or has_global_json):
+        return None
+
+    test_projects = _find_dotnet_test_projects(directory, project_root)
+
+    if len(test_projects) == 1:
+        test_location = test_projects[0] + "/"
+    elif test_projects:
+        test_location = test_projects[0] + "/"
+    else:
+        test_location = "tests/"
+
+    runner: dict = {
+        "command": "dotnet test",
+        "args": [],
+        "test_location": test_location,
+    }
+    if test_projects:
+        runner["test_projects"] = test_projects
+    return runner
+
+
 def _find_test_location(directory: str, language: str) -> Optional[str]:
     """Return the relative test directory name for the given project dir."""
     candidates: list[str]
@@ -346,6 +445,14 @@ def detect_monorepo(project_root: str) -> bool:
     for marker in markers:
         if os.path.exists(os.path.join(project_root, marker)):
             return True
+
+    # V12.4: .sln file indicates a .NET solution (multiple .csproj packages).
+    try:
+        for entry in os.scandir(project_root):
+            if entry.is_file() and entry.name.endswith(".sln"):
+                return True
+    except OSError:
+        pass
 
     _skip = {"node_modules", ".venv", "venv", ".git", "dist", "build", "__pycache__", "vendor"}
     count = 0
@@ -407,6 +514,9 @@ def scan_packages(project_root: str) -> dict:
         java = detect_java_runner(directory, project_root)
         if java:
             runners["java"] = java
+        dotnet = detect_dotnet_runner(directory, project_root)
+        if dotnet:
+            runners["csharp"] = dotnet
         if runners:
             packages[rel] = runners
 
@@ -461,6 +571,9 @@ def scan_runners(project_root: str) -> dict:
         java = detect_java_runner(directory, project_root)
         if java and "java" not in runners:
             runners["java"] = java
+        dotnet = detect_dotnet_runner(directory, project_root)
+        if dotnet and "csharp" not in runners:
+            runners["csharp"] = dotnet
 
     _try_dir(project_root)
 
