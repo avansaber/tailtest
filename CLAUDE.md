@@ -141,6 +141,8 @@ Depth is read from `.tailtest/config.json` (`depth` key). Default when absent: `
 | `laravel` | Valid input returns expected response, validation failure returns 422, unauthenticated request is rejected |
 | `nuxt` | Component renders via `mountSuspended`, required props present, handles async setup correctly |
 | `spring` | Valid request returns 200, missing required field returns 400, unauthenticated request returns 401, controller slice test with `@WebMvcTest`, service dependency overridden via `@MockBean` |
+| `nestjs` | Valid DTO passes class-validator, invalid DTO returns 400, guard rejects unauthenticated request, service replaced via `Test.createTestingModule` override, controller-style (HTTP via supertest) or microservice-style (`ClientProxy`) test harness as appropriate |
+| `flask` | Route returns 200 on valid path, 404 on unknown route, blueprint registration binds the correct prefix, `test_client` fixture used within app context, validation rejects bad input |
 
 ---
 
@@ -288,6 +290,12 @@ Server-only components (`.server.vue`) cannot be mounted -- skip them.
 
 **Laravel Feature tests:**
 Require a test database (`.env.testing`). If absent: generate the test file but do not run it. Add at the top: `// tailtest: not run -- .env.testing required. Run manually after setup.`
+
+**NestJS:**
+Use `Test.createTestingModule` to wire providers, guards, interceptors, and controllers for tests. Override injected providers with `.overrideProvider(Token).useValue(mock)` or `.useFactory(...)` rather than instantiating classes directly. For unit tests, resolve the class under test from the module via `moduleRef.get<ClassName>(ClassName)`. For e2e / controller tests, compile the module to an app with `createNestApplication()` and exercise routes via supertest (`request(app.getHttpServer()).post('/orders').send(...)`). For microservice transports (`@nestjs/microservices` with Kafka/RabbitMQ), use `ClientProxy` + `ClientsModule.register([...])` and configure the test transport (e.g. in-memory / mocked transport) rather than spinning up a real broker.
+
+**Flask:**
+Use Flask's `test_client()` context manager for route tests: `with app.test_client() as client: response = client.get('/orders')`. Always create the app via your application factory within a test fixture so each test gets a fresh instance. Activate the app context with `with app.app_context():` when the test touches db/config/extensions. Register blueprints in the factory and assert that the URL rule exists via `app.url_map`. When `pytest-flask` is in deps, prefer its `client` and `app` fixtures over manual context management. For form / JSON validation, assert the response status (`400` or `422` per your validator) and the field error structure, not just the absence of a 2xx.
 
 ---
 

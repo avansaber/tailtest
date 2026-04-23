@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.11.0 -- 2026-04-23
+
+NestJS and Flask framework support. 444 tests.
+
+**NestJS detection:** Projects with `@nestjs/core` in dependencies now register as `framework: nestjs`. Precedence: NestJS is checked before Next.js (more specific signal). Monorepos with a NestJS backend and a Next.js frontend in separate packages get correct per-package detection. R2 row: valid DTO, invalid DTO (400), unauthenticated guard rejection, `Test.createTestingModule` provider override, controller or microservice harness.
+
+**Flask detection:** Projects with `flask` in pyproject deps now register as `framework: flask`. For the rare migration case where both `flask` and `fastapi` are declared, entry-point file inspection (`app.py`, `main.py`, `wsgi.py`, `asgi.py`) picks the right one based on which framework is actually instantiated. Ambiguous cases fall back to `fastapi` preserving pre-V12.2 behavior. R2 row: valid route (200), unknown route (404), blueprint registration, `test_client` + app context, validation rejection.
+
+**S-rules additions:** New "NestJS" and "Flask" entries in the Scenario rules section covering `Test.createTestingModule` patterns, provider overrides, microservice transport variants for NestJS, and `test_client` + app context + blueprint + pytest-flask patterns for Flask.
+
 ## v3.10.0 -- 2026-04-23
 
 Spring Boot R2 baseline + Bun test, Deno test, pytest-asyncio detection. 436 tests.

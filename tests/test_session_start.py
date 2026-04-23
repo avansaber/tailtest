@@ -250,6 +250,25 @@ class TestDetectNodeRunner:
         result = detect_node_runner(str(tmp_path), str(tmp_path))
         assert result["command"] == "vitest"
 
+    # V12.2 NestJS framework detection
+
+    def test_nestjs_framework_detected(self, tmp_path):
+        pkg = {"devDependencies": {"vitest": "^1.0.0"}, "dependencies": {"@nestjs/core": "10.0.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "nestjs"
+
+    def test_nestjs_wins_over_nextjs_if_both_present(self, tmp_path):
+        # Edge case: @nestjs/core is the more specific signal
+        pkg = {
+            "dependencies": {"@nestjs/core": "10.0.0", "next": "14.0.0"},
+            "devDependencies": {"vitest": "^1.0.0"},
+        }
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result.get("framework") == "nestjs"
+
 
 # ---------------------------------------------------------------------------
 # detect_deno_runner (V12.1)
@@ -296,6 +315,66 @@ class TestPytestAsyncio:
         result = detect_python_runner(str(tmp_path), str(tmp_path))
         assert result is not None
         assert "async_framework" not in result
+
+
+# ---------------------------------------------------------------------------
+# Flask framework detection (V12.2)
+# ---------------------------------------------------------------------------
+
+
+class TestFlaskDetection:
+    def test_flask_alone_detected(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["flask", "pytest"]\n'
+        )
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "flask"
+
+    def test_fastapi_alone_still_works(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["fastapi", "pytest"]\n'
+        )
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("framework") == "fastapi"
+
+    def test_django_wins_over_flask(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["flask", "django", "pytest"]\n'
+        )
+        (tmp_path / "manage.py").write_text("#!/usr/bin/env python\n")
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result.get("framework") == "django"
+
+    def test_flask_and_fastapi_both_declared_app_py_flask(self, tmp_path):
+        # V12.2 precedence: entry-point file inspection when both libs declared
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["flask", "fastapi", "pytest"]\n'
+        )
+        (tmp_path / "app.py").write_text(
+            "from flask import Flask\napp = Flask(__name__)\n"
+        )
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result.get("framework") == "flask"
+
+    def test_flask_and_fastapi_both_declared_main_py_fastapi(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["flask", "fastapi", "pytest"]\n'
+        )
+        (tmp_path / "main.py").write_text(
+            "from fastapi import FastAPI\napp = FastAPI()\n"
+        )
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result.get("framework") == "fastapi"
+
+    def test_flask_and_fastapi_both_declared_no_entry_point_defaults_fastapi(self, tmp_path):
+        # Ambiguous case: fall back to fastapi (pre-V12.2 behavior preserved)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["flask", "fastapi", "pytest"]\n'
+        )
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result.get("framework") == "fastapi"
 
 
 # ---------------------------------------------------------------------------

@@ -28,6 +28,46 @@ def _read_toml_text(path: str) -> Optional[str]:
         return None
 
 
+def _detect_py_web_framework(directory: str, text: str) -> Optional[str]:
+    """Pick between flask and fastapi from pyproject deps + entry-point inspection.
+
+    When only one is declared, return it directly. When both are declared (rare,
+    e.g. mid-migration), inspect common entry-point files for the actual framework
+    instantiation. Falls back to fastapi if inspection is ambiguous, preserving
+    pre-V12.2 behavior.
+    """
+    has_fastapi = "fastapi" in text
+    has_flask = "flask" in text
+
+    if has_flask and not has_fastapi:
+        return "flask"
+    if has_fastapi and not has_flask:
+        return "fastapi"
+    if not has_flask and not has_fastapi:
+        return None
+
+    # Both present; inspect entry-point files for Flask() or FastAPI() instantiation
+    entry_point_names = (
+        "app.py", "main.py", "wsgi.py", "asgi.py",
+        "src/app.py", "src/main.py",
+    )
+    for name in entry_point_names:
+        path = os.path.join(directory, name)
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path) as fh:
+                content = fh.read()
+        except OSError:
+            continue
+        if "FastAPI(" in content:
+            return "fastapi"
+        if "Flask(__name__" in content or "Flask('" in content or 'Flask("' in content:
+            return "flask"
+
+    return "fastapi"
+
+
 def detect_python_runner(directory: str, project_root: str) -> Optional[dict]:
     """Detect Python test runner from pyproject.toml."""
     pyproject_path = os.path.join(directory, "pyproject.toml")
@@ -48,8 +88,8 @@ def detect_python_runner(directory: str, project_root: str) -> Optional[dict]:
     framework = None
     if os.path.exists(os.path.join(directory, "manage.py")):
         framework = "django"
-    elif "fastapi" in text:
-        framework = "fastapi"
+    else:
+        framework = _detect_py_web_framework(directory, text)
 
     runner: dict = {
         "command": "pytest",
@@ -236,7 +276,9 @@ def detect_node_runner(directory: str, project_root: str) -> Optional[dict]:
         command, args = "vitest", ["run"]
 
     framework = None
-    if "next" in all_deps:
+    if "@nestjs/core" in all_deps:
+        framework = "nestjs"
+    elif "next" in all_deps:
         framework = "nextjs"
     elif "nuxt" in all_deps or os.path.exists(os.path.join(directory, "nuxt.config.ts")) or os.path.exists(os.path.join(directory, "nuxt.config.js")):
         framework = "nuxt"
