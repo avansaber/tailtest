@@ -66,4 +66,4 @@ See [tailtest.com/docs/config](https://tailtest.com/docs/config) for all options
 
 ## License
 
-Apache 2.0
+MIT
