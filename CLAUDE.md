@@ -140,6 +140,7 @@ Depth is read from `.tailtest/config.json` (`depth` key). Default when absent: `
 | `rails` | Valid record saves, invalid record fails validation and returns errors, unauthorised request is rejected |
 | `laravel` | Valid input returns expected response, validation failure returns 422, unauthenticated request is rejected |
 | `nuxt` | Component renders via `mountSuspended`, required props present, handles async setup correctly |
+| `spring` | Valid request returns 200, missing required field returns 400, unauthenticated request returns 401, controller slice test with `@WebMvcTest`, service dependency overridden via `@MockBean` |
 
 ---
 
