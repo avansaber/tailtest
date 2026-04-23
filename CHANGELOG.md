@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.10.0 -- 2026-04-23
+
+Spring Boot R2 baseline + Bun test, Deno test, pytest-asyncio detection. 436 tests.
+
+**Spring Boot (R2 completion):** Spring Boot projects (Maven or Gradle with `spring-boot` referenced) now get auto-included baseline scenarios on top of the Java baseline: valid request returns 200, missing required field returns 400, unauthenticated request returns 401, controller slice test with `@WebMvcTest`, service dependency overridden via `@MockBean`. Detection and Scenario rules already shipped in v3.9.0; this completes the R2 framework template row.
+
+**Bun test detection:** Projects with `bun test` in `package.json` `scripts.test` or with `bunfig.toml` present now get the `bun test` runner instead of falling back to `vitest`. Precedence is explicit: scripts > deps > `bunfig.toml` tiebreaker. Mixed projects (e.g. `bunfig.toml` plus a `vitest` dep) resolve to whichever runner the test script names; if no test script, deps win.
+
+**Deno test detection:** New `detect_deno_runner` function picks up Deno projects via `deno.json` or `deno.jsonc`. Tests are colocated (`*_test.ts` style) with `deno test` as the runner. When both `package.json` and `deno.json` exist, Node wins (Deno only fills if no Node manifest is present).
+
+**pytest-asyncio:** Detected via `pytest-asyncio` in pyproject deps. Adds an additive `async_framework` field on the python runner entry. No schema break for existing projects.
+
+**Mock the right library (S-rules update):** Expanded to cover Bun (`import { mock, spyOn } from 'bun:test'`) and Deno (`jsr:@std/testing/mock`) with explicit warning against mixing runners' mocking syntax.
+
 ## v3.9.0 -- 2026-04-20
 
 Quality layer and cross-session memory. 424 tests.
