@@ -44,9 +44,9 @@ After any Claude-written file lands in your project:
 
 ## Supported languages
 
-Python, TypeScript, JavaScript, Go, Ruby, PHP, Java, Rust
+Python, TypeScript, JavaScript, Go, Ruby, PHP, Java, Kotlin, Rust
 
-Runners are auto-detected from `pyproject.toml`, `package.json`, `go.mod`, and other standard manifests.
+Runners are auto-detected from `pyproject.toml`, `package.json`, `go.mod`, `build.gradle.kts`, and other standard manifests.
 
 ---
 

@@ -774,6 +774,29 @@ class TestDetectJavaRunner:
         assert result is not None
         assert "framework" not in result
 
+    # V12.3 Kotlin test-path heuristic
+
+    def test_kotlin_only_test_dir_uses_src_test_kotlin(self, tmp_path):
+        (tmp_path / "build.gradle.kts").write_text('plugins { kotlin("jvm") version "1.9" }\n')
+        (tmp_path / "src" / "test" / "kotlin").mkdir(parents=True)
+        result = detect_java_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["test_location"] == "src/test/kotlin/"
+
+    def test_mixed_java_and_kotlin_test_dirs_defaults_to_java(self, tmp_path):
+        (tmp_path / "build.gradle.kts").write_text('plugins { kotlin("jvm") version "1.9" }\n')
+        (tmp_path / "src" / "test" / "java").mkdir(parents=True)
+        (tmp_path / "src" / "test" / "kotlin").mkdir(parents=True)
+        result = detect_java_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["test_location"] == "src/test/java/"
+
+    def test_java_only_still_defaults_to_java(self, tmp_path):
+        (tmp_path / "pom.xml").write_text("<project></project>")
+        (tmp_path / "src" / "test" / "java").mkdir(parents=True)
+        result = detect_java_runner(str(tmp_path), str(tmp_path))
+        assert result["test_location"] == "src/test/java/"
+
 
 # ---------------------------------------------------------------------------
 # find_recent_test_files

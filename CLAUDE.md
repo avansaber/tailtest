@@ -125,6 +125,7 @@ Depth is read from `.tailtest/config.json` (`depth` key). Default when absent: `
 | Go | zero value, empty struct, nil pointer |
 | Ruby | `nil`, empty array, zero |
 | Java | `null`, empty collection, zero, negative |
+| Kotlin | `null`, empty collection, zero, negative, `Result.failure` |
 | PHP | `null`, empty array, zero, empty string |
 | Rust | empty input, boundary values (0, u32::MAX or equivalent) |
 
@@ -167,6 +168,7 @@ Write the scenarios as executable test code to disk.
 | Rust | inline inside the source file (`#[cfg(test)]` module) | n/a -- see Scenario rules |
 | Ruby | `runners.ruby.test_location` from session.json | `{source_basename}_spec.rb` (rspec) or `{source_basename}_test.rb` (minitest) |
 | Java | `runners.java.test_location` from session.json, default `src/test/java/` | `{source_basename}Test.java` |
+| Kotlin | `runners.java.test_location` from session.json when it ends in `kotlin/`; otherwise `src/test/kotlin/` | `{source_basename}Test.kt` |
 | PHP (laravel/unit context) | `runners.php.unit_test_dir` from session.json, default `tests/Unit/` | `{source_basename}Test.php` |
 | PHP (laravel/feature context) | `runners.php.feature_test_dir` from session.json, default `tests/Feature/` | `{source_basename}Test.php` |
 
@@ -278,6 +280,9 @@ Use `TestClient` from `starlette.testclient` (included with FastAPI). Instantiat
 
 **Java / Spring Boot:**
 Use `@SpringBootTest` for integration tests and `@WebMvcTest` for controller slice tests. Use `MockMvc` for controller tests, `@MockBean` for service dependencies. Annotate the test class with `@ExtendWith(SpringExtension.class)` if not using `@SpringBootTest`.
+
+**Kotlin:**
+Tests live in `src/test/kotlin/` (parallel to `src/main/kotlin/`). Prefer `kotlin.test` assertions (`assertEquals`, `assertTrue`, `assertFailsWith`) over JUnit's for idiomatic output; both work. Use JUnit 5 (`@Test`, `@BeforeEach`) for lifecycle. For coroutine-based code, wrap assertions in `runTest { ... }` from `kotlinx-coroutines-test` -- never call `runBlocking` in tests (loses virtual time, allows accidental real delays). For `sealed class` hierarchies, write one test per branch and use a `when` expression with `else -> error(...)` so a new branch added later fails the test as a compile error, not silently. For `data class` equality, compare whole instances (`assertEquals(expected, actual)`) rather than field-by-field. Use `Result<T>` testing with `assertTrue(result.isFailure)` + `assertIs<ExpectedException>(result.exceptionOrNull())`. Kotlin's null safety means most "null input" R1 scenarios target nullable parameters (`fun(x: Foo?)`) or platform types from Java interop; test these explicitly.
 
 **Nuxt:**
 Do NOT use `mount` from `@vue/test-utils` -- it is synchronous and skips Nuxt's async component setup, producing empty or incorrect output. Always use `mountSuspended` from `@nuxt/test-utils`. Exact pattern:
