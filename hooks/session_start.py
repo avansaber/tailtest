@@ -47,6 +47,7 @@ from lib.runners import (
     _read_json,
     _read_toml_text,
     create_session,
+    detect_deno_runner,
     detect_go_runner,
     detect_java_runner,
     detect_monorepo,

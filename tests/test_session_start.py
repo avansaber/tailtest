@@ -25,6 +25,7 @@ from session_start import (
     build_style_context,
     create_session,
     detect_custom_helpers,
+    detect_deno_runner,
     detect_go_runner,
     detect_java_runner,
     detect_monorepo,
@@ -204,6 +205,98 @@ class TestDetectNodeRunner:
         assert result is not None
         assert "framework" not in result
 
+    # V12.1 Bun test detection
+
+    def test_bun_test_in_test_script(self, tmp_path):
+        pkg = {"scripts": {"test": "bun test"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["command"] == "bun test"
+        assert result["args"] == []
+        assert result["needs_bootstrap"] is False
+
+    def test_bunfig_toml_alone_uses_bun(self, tmp_path):
+        pkg = {"name": "my-app"}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        (tmp_path / "bunfig.toml").write_text("")
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result["command"] == "bun test"
+        assert result["needs_bootstrap"] is False
+
+    def test_bun_script_wins_over_vitest_dep(self, tmp_path):
+        # Precedence: explicit test script outranks deps
+        pkg = {
+            "scripts": {"test": "bun test"},
+            "devDependencies": {"vitest": "^1.0.0"},
+        }
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result["command"] == "bun test"
+
+    def test_vitest_script_wins_over_bunfig(self, tmp_path):
+        # Precedence: explicit test script outranks bunfig.toml tiebreaker
+        pkg = {"scripts": {"test": "vitest run"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        (tmp_path / "bunfig.toml").write_text("")
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result["command"] == "vitest"
+
+    def test_vitest_dep_wins_over_bunfig(self, tmp_path):
+        # Precedence: deps outrank bunfig.toml tiebreaker
+        pkg = {"devDependencies": {"vitest": "^1.0.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        (tmp_path / "bunfig.toml").write_text("")
+        result = detect_node_runner(str(tmp_path), str(tmp_path))
+        assert result["command"] == "vitest"
+
+
+# ---------------------------------------------------------------------------
+# detect_deno_runner (V12.1)
+# ---------------------------------------------------------------------------
+
+
+class TestDetectDenoRunner:
+    def test_no_deno_json_returns_none(self, tmp_path):
+        assert detect_deno_runner(str(tmp_path), str(tmp_path)) is None
+
+    def test_deno_json_detected(self, tmp_path):
+        (tmp_path / "deno.json").write_text("{}")
+        result = detect_deno_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["command"] == "deno test"
+        assert result["test_location"] == "."
+        assert result["style"] == "colocated"
+
+    def test_deno_jsonc_also_detected(self, tmp_path):
+        (tmp_path / "deno.jsonc").write_text("{ /* comment */ }")
+        result = detect_deno_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result["command"] == "deno test"
+
+
+# ---------------------------------------------------------------------------
+# pytest-asyncio detection in detect_python_runner (V12.1)
+# ---------------------------------------------------------------------------
+
+
+class TestPytestAsyncio:
+    def test_pytest_asyncio_detected(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["pytest", "pytest-asyncio"]\n'
+        )
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert result.get("async_framework") == "pytest-asyncio"
+
+    def test_no_pytest_asyncio_no_field(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["pytest"]\n'
+        )
+        result = detect_python_runner(str(tmp_path), str(tmp_path))
+        assert result is not None
+        assert "async_framework" not in result
+
 
 # ---------------------------------------------------------------------------
 # scan_runners -- multi-directory detection
@@ -264,6 +357,26 @@ class TestScanRunners:
         (tmp_path / "tsconfig.json").write_text("{}")
         runners = scan_runners(str(tmp_path))
         assert "typescript" in runners
+
+    def test_deno_project_at_root(self, tmp_path):
+        # V12.1: Deno project (deno.json, no package.json) registers as typescript runner
+        (tmp_path / "deno.json").write_text("{}")
+        runners = scan_runners(str(tmp_path))
+        assert "typescript" in runners
+        assert runners["typescript"]["command"] == "deno test"
+
+    def test_node_wins_over_deno_when_both_present(self, tmp_path):
+        # Edge case: project has both package.json and deno.json
+        # Node detection runs first; Deno only fills if Node returned None
+        (tmp_path / "package.json").write_text(
+            json.dumps({"devDependencies": {"vitest": "^1.0.0"}})
+        )
+        (tmp_path / "deno.json").write_text("{}")
+        runners = scan_runners(str(tmp_path))
+        # Node runner won; command is vitest, not deno test
+        ts_or_js = runners.get("typescript") or runners.get("javascript")
+        assert ts_or_js is not None
+        assert ts_or_js["command"] == "vitest"
 
 
 # ---------------------------------------------------------------------------

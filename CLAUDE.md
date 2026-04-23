@@ -248,7 +248,7 @@ Never use `time.time()`, `datetime.now()`, or `Date.now()` in test assertions --
 Only mock true external boundaries: HTTP requests, database queries, filesystem I/O, system time, random generators. Never mock internal service classes, domain models, validators, or utilities -- test them with real inputs. Prefer real in-memory implementations (SQLite in-memory, `BytesIO`, `tempfile`) over mocks for anything that can be kept fast and deterministic.
 
 **Mock the right library:**
-vitest project → `vi.mock()`. Jest project → `jest.mock()`. Never mix -- `jest.*` in a vitest project throws `ReferenceError: jest is not defined`.
+vitest project → `vi.mock()`. Jest project → `jest.mock()`. Bun test project → `import { mock, spyOn } from 'bun:test'`. Deno test project → `import { stub, spy } from "jsr:@std/testing/mock"`. Never mix runners' mocking syntax -- `jest.*` in a vitest project throws `ReferenceError: jest is not defined`; `vi.*` in a Bun project is not defined.
 
 **Mock all network I/O:**
 Not just `requests` / `axios`. Include `smtplib`, `socket`, `urllib`, `http.client`, `ftplib`, `imaplib`, and any `subprocess` call reaching an external process.
