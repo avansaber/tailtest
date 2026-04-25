@@ -110,11 +110,31 @@ Write scenarios that describe business behavior, not function signatures.
 
 Depth is read from `.tailtest/config.json` (`depth` key). Default when absent: `standard`.
 
-| Depth | Scenarios | Scope |
+| Depth | Scenarios | Adversarial scenarios (R15 minimum) | Scope |
+|---|---|---|---|
+| `simple` | 2-3 | 0 | Happy path only |
+| `standard` (default) | 5-8 | >=2 | Happy path + key edge cases + R15 adversarial probes |
+| `thorough` | 10-15 | >=4 | Happy path + edges + failure modes + R15 adversarial probes |
+| `adversarial` | 8-12 | 8-12 | Adversarial-biased: nearly every scenario probes a breakage path |
+
+**R15 -- Include adversarial scenarios in every SCENARIO PLAN at standard or higher depth.**
+
+The SCENARIO PLAN must include at least the depth's required count of adversarial scenarios. Adversarial scenarios are scenarios designed to expose bugs by probing edges, not to confirm correct behavior. Label each one in the SCENARIO PLAN with `[adversarial: <category>]` so a reader can see which probes the test exercises.
+
+| # | Adversarial category | Examples |
 |---|---|---|
-| `simple` | 2-3 | Happy path only |
-| `standard` | 5-8 | Happy path + key edge cases |
-| `thorough` | 10-15 | Happy path + edge cases + failure modes |
+| 1 | Boundary inputs | `MAX_INT`, `MIN_INT`, empty, single-element, unicode, null bytes, malformed UTF-8 |
+| 2 | Format / injection | path traversal `..`, regex specials, shell metacharacters, SQL fragments, HTML / XML entities |
+| 3 | Type confusion | wrong type passed (string where int expected; list where dict expected) |
+| 4 | Concurrent state | race conditions, shared mutable state, double invocation |
+| 5 | Time / locale edges | DST transitions, leap year, locale-specific formats, timezone shifts |
+| 6 | Error handling under partial failures | network mid-call fail, disk full, EINTR, permission revoked |
+| 7 | Resource exhaustion | very large input, deeply nested input, many open file descriptors |
+| 8 | Off-by-one logic | boundary indices, fence-post errors, last-element handling |
+
+Pick categories that are relevant to the source file under test. Skip categories that genuinely do not apply (e.g., a pure data class has no concurrent state to probe). Document the choice: `Skipped category 4 (concurrency): no shared state in module.`
+
+If the source file has no external input or branching (a pure constant module, a re-export barrel), R15 does not apply -- skip adversarial scenarios entirely and note this in the SCENARIO PLAN.
 
 **Baseline scenarios by language** -- always include at least these, then add behaviour-specific scenarios on top:
 

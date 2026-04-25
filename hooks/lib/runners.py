@@ -622,7 +622,7 @@ def read_depth(project_root: str) -> str:
     config_path = os.path.join(project_root, ".tailtest", "config.json")
     if os.path.exists(config_path):
         cfg = _read_json(config_path)
-        if cfg and cfg.get("depth") in ("simple", "standard", "thorough"):
+        if cfg and cfg.get("depth") in ("simple", "standard", "thorough", "adversarial"):
             return cfg["depth"]
     return "standard"
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.14.0 -- 2026-04-25
+
+Adversarial test mode (V13). 491 tests.
+
+**New depth tier `adversarial`:** alongside `simple` / `standard` / `thorough`, set `"depth": "adversarial"` in `.tailtest/config.json` to bias scenario generation toward adversarial categories. Generates 8-12 scenarios per file, nearly all probing breakage paths rather than confirming correctness.
+
+**New rule R15:** every SCENARIO PLAN at standard or higher depth now includes a minimum count of adversarial scenarios labelled `[adversarial: <category>]`. Required count per depth: simple=0, standard >=2, thorough >=4, adversarial 8-12. Skip categories that genuinely do not apply (state which were skipped and why).
+
+**8 adversarial scenario categories:** boundary inputs (`MAX_INT`, `MIN_INT`, empty, single-element, unicode, null bytes, malformed UTF-8), format / injection (path traversal, regex specials, shell metacharacters, SQL fragments), type confusion (wrong type passed), concurrent state (race conditions, shared mutable state), time / locale edges (DST, leap year, timezone shifts), error handling under partial failures (network mid-call fail, disk full, EINTR), resource exhaustion (very large input, deeply nested, many file descriptors), off-by-one logic (boundary indices, fence-post errors).
+
+**New slash command `/tailtest hunt <file>`:** forces an adversarial pass on a specific file regardless of project depth. Writes to a separate hunt test file (`tests/test_<basename>_hunt.py` etc.) so the hunt does not contaminate the main test suite. R12 classification applied to any failures.
+
+**Discovery context:** V13 was developed after the V13 outreach pilot 2026-04-23, where stock tailtest produced 0 real bugs from 90 passing coverage tests across 6 repos but the same plugin produced 25 distinct real bugs once an adversarial prompt was added. V13 bakes that adversarial layer into the product so every user gets bug-hunting capability without writing custom prompts.
+
 ## v3.13.0 -- 2026-04-23
 
 C# / .NET language support. 459 tests.
