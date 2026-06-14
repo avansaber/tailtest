@@ -1,7 +1,8 @@
 {
   "name": "tailtest",
-  "version": "3.14.0",
-  "description": "Quietly generates and runs tests alongside your Claude Code session. Any language. No commands. No setup.",
+  "displayName": "tailtest -- AI software testing",
+  "version": "3.15.0",
+  "description": "Auto-generates and runs tests every time Claude edits a file. R1-R15 rule layer + adversarial mode.",
   "author": {
     "name": "AvanSaber Inc.",
     "email": "support@avansaber.com",
@@ -12,9 +13,22 @@
   "license": "MIT",
   "keywords": [
     "testing",
+    "tdd",
+    "adversarial",
     "auto-test",
     "claude-code",
-    "assistant",
-    "framework-agnostic"
-  ]
+    "pytest",
+    "jest",
+    "hooks"
+  ],
+  "agents": ["./agents/"],
+  "hooks": "./hooks/hooks.json",
+  "userConfig": {
+    "depth": {
+      "type": "string",
+      "title": "Test depth",
+      "description": "simple | standard | thorough",
+      "default": "standard"
+    }
+  }
 }

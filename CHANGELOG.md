@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.15.0 -- 2026-06-13
+
+Platform freshness (V17 Wave A). 518 tests.
+
+**New hook: `SubagentStop`** -- tailtest now fires after a subagent finishes its work, not just after direct Claude edits. Files queued in `pending_files` during a subagent's tool calls are surfaced to the parent turn via an additionalContext drain note, so subagent-authored code is no longer silently skipped.
+
+**New agent: `agents/verifier.md`** -- a read-only haiku-powered failure triage agent. Auto-invoked on test failures, it classifies each failure as `real-bug | wrong-test | flaky | env` and returns a one-line root cause to the main thread without modifying any files.
+
+**Plugin manifest polish** -- `.claude-plugin/plugin.json` now declares `displayName`, enriched `keywords` (adds `tdd`, `adversarial`), `agents` reference, `hooks` path, and typed `userConfig` for depth. Enables marketplace display name and config UI.
+
 ## v3.14.0 -- 2026-04-25
 
 Adversarial test mode (V13). 491 tests.
